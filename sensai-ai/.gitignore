@@ -10,13 +10,13 @@ sqlite.db
 experiments
 question_generator
 archive
-.env
+# .env
 demo/english_activity.csv
 demo/db/
 src/db
 scripts
-.env.*
-!.env.*example
+# .env.*
+# !.env.*example
 *.pkl
 secrets.toml
 secrets.*.toml
