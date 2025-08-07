@@ -90,9 +90,9 @@ async def create_post_votes_table(cursor):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 post_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
-                vote_type TEXT NOT NULL,
+                vote_type TEXT NOT NULL CHECK(vote_type IN ('up', 'down')),
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(post_id, user_id, vote_type),
+                UNIQUE(post_id, user_id),
                 FOREIGN KEY (post_id) REFERENCES {posts_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
             )"""

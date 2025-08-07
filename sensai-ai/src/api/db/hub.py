@@ -88,62 +88,85 @@ async def get_posts_by_hub(hub_id: int) -> List[Dict]:
     """
     query = f"""
         SELECT
-            p.id, p.title, p.content, p.post_type, p.created_at, u.email,
-            (SELECT COUNT(*) FROM {post_votes_table_name} WHERE post_id = p.id AND vote_type = 'helpful') as votes,
+            p.id, p.title, p.content, p.post_type, p.created_at, u.email as author,
+            COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
             (SELECT COUNT(*) FROM {posts_table_name} WHERE parent_id = p.id) as comment_count
         FROM {posts_table_name} p
         JOIN {users_table_name} u ON p.user_id = u.id
+        LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
         WHERE p.hub_id = ? AND p.parent_id IS NULL
+        GROUP BY p.id, p.title, p.content, p.post_type, p.created_at, u.email
         ORDER BY p.created_at DESC
     """
     rows = await execute_db_operation(query, (hub_id,), fetch_all=True)
     return [
         {
             "id": row[0], "title": row[1], "content": row[2], "post_type": row[3],
-            "created_at": row[4], "author": row[5], "votes": row[6], "comment_count": row[7]
+            "created_at": row[4], "author": row[5], "votes": int(row[6]), "comment_count": row[7]
         } for row in rows
     ]
 
-async def get_post_with_details(post_id: int) -> Optional[Dict]:
+
+async def get_post_with_details(post_id: int, user_id: Optional[int] = None) -> Optional[Dict]:
     post_query = f"""
         SELECT p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email as author,
-               (SELECT COUNT(*) FROM {post_votes_table_name} WHERE post_id = p.id) as votes
+               COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
+               MAX(CASE WHEN pv.user_id = ? THEN pv.vote_type ELSE NULL END) as user_vote
         FROM {posts_table_name} p
         JOIN {users_table_name} u ON p.user_id = u.id
+        LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
         WHERE p.id = ?
+        GROUP BY p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email
     """
-    post_rows = await execute_db_operation(post_query, (post_id,), fetch_all=True)
+    post_rows = await execute_db_operation(post_query, (user_id, post_id), fetch_all=True)
     if not post_rows:
         return None
     post_row = post_rows[0]
 
     comments_query = f"""
-        SELECT p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email as author,
-               (SELECT COUNT(*) FROM {post_votes_table_name} WHERE post_id = p.id) as votes
+        SELECT p.id, p.content, p.created_at, u.email as author,
+               COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
+               MAX(CASE WHEN pv.user_id = ? THEN pv.vote_type ELSE NULL END) as user_vote,
+               p.hub_id, p.post_type
         FROM {posts_table_name} p
         JOIN {users_table_name} u ON p.user_id = u.id
+        LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
         WHERE p.parent_id = ?
+        GROUP BY p.id, p.content, p.created_at, u.email, p.hub_id, p.post_type
         ORDER BY p.created_at ASC
     """
-    comments_rows = await execute_db_operation(comments_query, (post_id,), fetch_all=True)
+    comment_rows = await execute_db_operation(comments_query, (user_id, post_id), fetch_all=True)
 
-    post_details = {
+    post = {
         "id": post_row[0], "hub_id": post_row[1], "title": post_row[2], "content": post_row[3],
-        "post_type": post_row[4], "created_at": post_row[5], "author": post_row[6], "votes": post_row[7]
+        "post_type": post_row[4], "created_at": post_row[5], "author": post_row[6],
+        "votes": int(post_row[7]), "user_vote": post_row[8],
+        "comments": [
+            {
+                "id": row[0], "content": row[1], "created_at": row[2], "author": row[3],
+                "votes": int(row[4]), "user_vote": row[5], "hub_id": row[6], "post_type": row[7]
+            } for row in comment_rows
+        ]
     }
-    post_details["comments"] = [
-        {
-            "id": comment[0], "hub_id": comment[1], "title": comment[2], "content": comment[3],
-            "post_type": comment[4], "created_at": comment[5], "author": comment[6], "votes": comment[7]
-        } for comment in comments_rows
-    ]
-    return post_details
+    return post
 
-async def add_vote_to_post(post_id: int, user_id: int, vote_type: str):
-    await execute_db_operation(
-        f"INSERT INTO {post_votes_table_name} (post_id, user_id, vote_type) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
-        (post_id, user_id, vote_type)
-    )
+
+async def add_vote_to_post(post_id: int, user_id: int, vote_type: Optional[str], is_comment: bool):
+    # If vote_type is None, it means the user is un-voting.
+    if vote_type is None:
+        await execute_db_operation(
+            f"DELETE FROM {post_votes_table_name} WHERE post_id = ? AND user_id = ?",
+            (post_id, user_id)
+        )
+    else:
+        # Upsert the vote. This will insert a new vote or update an existing one.
+        await execute_db_operation(
+            f"""INSERT INTO {post_votes_table_name} (post_id, user_id, vote_type)
+                VALUES (?, ?, ?)
+                ON CONFLICT(post_id, user_id) DO UPDATE SET
+                vote_type = excluded.vote_type""",
+            (post_id, user_id, vote_type)
+        )
 
 async def add_link_to_post(post_id: int, item_type: str, item_id: int):
     """

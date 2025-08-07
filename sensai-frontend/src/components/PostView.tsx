@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ThumbsUp } from "lucide-react";
+import { ThumbsUp, ThumbsDown } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { PostWithComments, Comment } from "@/lib/api";
 
@@ -75,22 +75,22 @@ export default function PostView({ postId }: PostViewProps) {
         }
     };
     
-    const handleVote = async (targetPostId: number, isComment: boolean) => {
+    const handleVote = async (targetPostId: number, isComment: boolean, voteType: 'up' | 'down') => {
         if (!user) return;
         try {
-            await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts/${targetPostId}/vote`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts/${targetPostId}/vote`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: parseInt(user.id), vote_type: 'helpful' })
+                body: JSON.stringify({ user_id: parseInt(user.id), vote_type: voteType, is_comment: isComment })
             });
 
             setPost(prevPost => {
                 if (!prevPost) return null;
                 if (!isComment) {
-                    return { ...prevPost, votes: prevPost.votes + 1 };
+                    return { ...prevPost, votes: prevPost.votes + (voteType === 'up' ? 1 : -1) };
                 } else {
                     const updatedComments = prevPost.comments.map(c => 
-                        c.id === targetPostId ? { ...c, votes: c.votes + 1 } : c
+                        c.id === targetPostId ? { ...c, votes: c.votes + (voteType === 'up' ? 1 : -1) } : c
                     );
                     return { ...prevPost, comments: updatedComments };
                 }
@@ -123,9 +123,11 @@ export default function PostView({ postId }: PostViewProps) {
                 </div>
                 <p className="text-gray-300 leading-relaxed mb-6 whitespace-pre-wrap">{post.content}</p>
                 <div className="flex items-center gap-4">
-                    <button onClick={() => handleVote(post.id, false)} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
-                        <ThumbsUp size={16} /> {post.votes} Helpful
-                    </button>
+                    <div className="flex items-center gap-2 text-gray-400">
+                        <button onClick={() => handleVote(post.id, false, 'up')} className="p-1 rounded-full hover:bg-gray-700"><ThumbsUp size={16} /></button>
+                        <span>{post.votes}</span>
+                        <button onClick={() => handleVote(post.id, false, 'down')} className="p-1 rounded-full hover:bg-gray-700"><ThumbsDown size={16} /></button>
+                    </div>
                 </div>
             </div>
 
@@ -160,9 +162,11 @@ export default function PostView({ postId }: PostViewProps) {
                                         <span>{new Date(comment.created_at).toLocaleDateString()}</span>
                                     </div>
                                 </div>
-                                <button onClick={() => handleVote(comment.id, true)} className="flex items-center gap-1 text-gray-400 hover:text-white transition-colors text-xs flex-shrink-0 ml-4">
-                                    <ThumbsUp size={14} /> {comment.votes}
-                                </button>
+                                <div className="flex items-center gap-1 text-gray-400 hover:text-white transition-colors text-xs flex-shrink-0 ml-4">
+                                    <button onClick={() => handleVote(comment.id, true, 'up')} className="p-1 rounded-full hover:bg-gray-700"><ThumbsUp size={14} /></button>
+                                    <span>{comment.votes}</span>
+                                    <button onClick={() => handleVote(comment.id, true, 'down')} className="p-1 rounded-full hover:bg-gray-700"><ThumbsDown size={14} /></button>
+                                </div>
                             </div>
                         </div>
                     ))}
