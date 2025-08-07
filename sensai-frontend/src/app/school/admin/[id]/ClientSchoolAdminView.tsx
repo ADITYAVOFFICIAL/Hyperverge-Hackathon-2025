@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Header } from "@/components/layout/header";
-import { Edit, Save, Users, BookOpen, Layers, Building, ChevronDown, Trash2, ExternalLink } from "lucide-react";
-import Link from "next/link";
+import { Edit, Save, Users, BookOpen, Layers, Building, ChevronDown, Trash2, ExternalLink, MessageSquare, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import CourseCard from "@/components/CourseCard";
@@ -14,6 +13,9 @@ import CreateCourseDialog from '@/components/CreateCourseDialog';
 import Toast from "@/components/Toast";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
 import { Cohort, TeamMember, Course } from "@/types";
+import { useHubs, Hub } from "@/lib/api";
+import HubCard from "@/components/HubCard";
+import CreateHubDialog from "@/components/CreateHubDialog";
 
 interface School {
     id: number;
@@ -24,7 +26,7 @@ interface School {
     members: TeamMember[];
 }
 
-type TabType = 'courses' | 'cohorts' | 'members';
+type TabType = 'courses' | 'cohorts' | 'members' | 'hubs';
 
 export default function ClientSchoolAdminView({ id }: { id: string }) {
     const router = useRouter();
@@ -39,9 +41,7 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
     const [isCreateCourseDialogOpen, setIsCreateCourseDialogOpen] = useState(false);
     const [memberToDelete, setMemberToDelete] = useState<TeamMember | null>(null);
     const schoolNameRef = useRef<HTMLHeadingElement>(null);
-    // Add state for selected members
     const [selectedMembers, setSelectedMembers] = useState<TeamMember[]>([]);
-    // Add state for toast notifications
     const [showToast, setShowToast] = useState(false);
     const [toastMessage, setToastMessage] = useState({
         title: '',
@@ -49,23 +49,23 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
         emoji: ''
     });
 
+    const { hubs, setHubs, isLoading: isLoadingHubs, error: hubsError } = useHubs(id);
+    const [isCreateHubDialogOpen, setIsCreateHubDialogOpen] = useState(false);
+
     // Add useEffect to automatically hide toast after 5 seconds
     useEffect(() => {
         if (showToast) {
             const timer = setTimeout(() => {
                 setShowToast(false);
             }, 5000);
-
-            // Cleanup the timer when component unmounts or showToast changes
             return () => clearTimeout(timer);
         }
     }, [showToast]);
 
     // Initialize tab from URL hash
     useEffect(() => {
-        // Check if there's a hash in the URL
         const hash = window.location.hash.replace('#', '');
-        if (hash === 'cohorts' || hash === 'members') {
+        if (['courses', 'cohorts', 'members', 'hubs'].includes(hash)) {
             setActiveTab(hash as TabType);
         }
     }, []);
@@ -75,35 +75,23 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
         const fetchSchool = async () => {
             setLoading(true);
             try {
-                // Fetch basic school info
-                const schoolResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/organizations/${id}`);
-                if (!schoolResponse.ok) {
-                    throw new Error(`API error: ${schoolResponse.status}`);
-                }
+                const [schoolResponse, membersResponse, cohortsResponse, coursesResponse] = await Promise.all([
+                    fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/organizations/${id}`),
+                    fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/organizations/${id}/members`),
+                    fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/cohorts/?org_id=${id}`),
+                    fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/courses/?org_id=${id}`)
+                ]);
+
+                if (!schoolResponse.ok) throw new Error(`API error (school): ${schoolResponse.status}`);
+                if (!membersResponse.ok) throw new Error(`API error (members): ${membersResponse.status}`);
+                if (!cohortsResponse.ok) throw new Error(`API error (cohorts): ${cohortsResponse.status}`);
+                if (!coursesResponse.ok) throw new Error(`API error (courses): ${coursesResponse.status}`);
+
                 const schoolData = await schoolResponse.json();
-
-                // Fetch members separately
-                const membersResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/organizations/${id}/members`);
-                if (!membersResponse.ok) {
-                    throw new Error(`API error: ${membersResponse.status}`);
-                }
                 const membersData = await membersResponse.json();
-
-                // Fetch cohorts separately
-                const cohortsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/cohorts/?org_id=${id}`);
-                if (!cohortsResponse.ok) {
-                    throw new Error(`API error: ${cohortsResponse.status}`);
-                }
                 const cohortsData = await cohortsResponse.json();
-
-                // Fetch courses separately
-                const coursesResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/courses/?org_id=${id}`);
-                if (!coursesResponse.ok) {
-                    throw new Error(`API error: ${coursesResponse.status}`);
-                }
                 const coursesData = await coursesResponse.json();
 
-                // Transform the API response to match the School interface
                 const transformedSchool: School = {
                     id: parseInt(schoolData.id),
                     name: schoolData.name,
@@ -111,26 +99,26 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                     courses: coursesData.map((course: any) => ({
                         id: course.id,
                         name: course.name,
-                        moduleCount: 0, // Default value since API doesn't provide this
-                        description: '' // Default value since API doesn't provide this
+                        moduleCount: 0,
+                        description: ''
                     })),
                     cohorts: cohortsData.map((cohort: any) => ({
                         id: cohort.id,
                         name: cohort.name,
                     })),
-                    members: membersData || []  // Use the members from the separate endpoint
+                    members: membersData || []
                 };
 
                 setSchool(transformedSchool);
-                setLoading(false);
             } catch (error) {
                 console.error("Error fetching school:", error);
+            } finally {
                 setLoading(false);
             }
         };
 
         fetchSchool();
-    }, [id, router]);
+    }, [id]);
 
     // Handle clicking outside the name edit field
     useEffect(() => {
@@ -144,17 +132,15 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
         return () => {
             document.removeEventListener("mousedown", handleClickOutside);
         };
-    }, [isEditingName, schoolNameRef]);
+    }, [isEditingName]);
 
     // Toggle name editing
     const toggleNameEdit = () => {
         setIsEditingName(!isEditingName);
-        // Focus the name field when editing is enabled
         if (!isEditingName) {
             setTimeout(() => {
                 if (schoolNameRef.current) {
                     schoolNameRef.current.focus();
-                    // Place cursor at the end of the text
                     const range = document.createRange();
                     const selection = window.getSelection();
                     range.selectNodeContents(schoolNameRef.current);
@@ -166,12 +152,8 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
         }
     };
 
-    // Handle name blur
-    const handleNameBlur = () => {
-        setIsEditingName(false);
-    };
+    const handleNameBlur = () => setIsEditingName(false);
 
-    // Handle keyboard events for name editing
     const handleNameKeyDown = (e: React.KeyboardEvent<HTMLHeadingElement>) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -181,104 +163,65 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
 
     const handleInviteMembers = async (emails: string[]) => {
         try {
-            // Make API call to invite members
             const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/organizations/${id}/members`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ emails }),
             });
 
-            if (!response.ok) {
-                throw new Error('Failed to invite members');
-            }
+            if (!response.ok) throw new Error('Failed to invite members');
 
-            // Refresh school data to get updated members list
             const membersResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/organizations/${id}/members`);
-            if (!membersResponse.ok) {
-                throw new Error('Failed to fetch updated members');
-            }
+            if (!membersResponse.ok) throw new Error('Failed to fetch updated members');
             const membersData = await membersResponse.json();
 
-            // Update school state with new members
-            setSchool(prev => prev ? {
-                ...prev,
-                members: membersData
-            } : null);
-
-            // Close the invite dialog
+            setSchool(prev => prev ? { ...prev, members: membersData } : null);
             setIsInviteDialogOpen(false);
 
-            // Show toast notification
             setToastMessage({
                 title: 'Growing the tribe',
                 description: `${emails.length} ${emails.length === 1 ? 'member' : 'members'} has been invited to your team`,
                 emoji: '🎉'
             });
             setShowToast(true);
-
         } catch (error) {
             console.error('Error inviting members:', error);
-            // Here you would typically show an error message to the user
         }
     };
 
-    // Check if a member is the current user
-    const isCurrentUser = (member: TeamMember) => {
-        return session?.user?.id === member.id.toString();
-    };
+    const isCurrentUser = (member: TeamMember) => session?.user?.id === member.id.toString();
 
     const handleDeleteMember = (member: TeamMember) => {
-        // Don't allow deleting yourself
         if (isCurrentUser(member)) return;
-
         setMemberToDelete(member);
         setSelectedMembers([]);
         setIsDeleteConfirmOpen(true);
     };
 
-    // Handle multiple members deletion
     const handleDeleteSelectedMembers = () => {
         setMemberToDelete(null);
         setIsDeleteConfirmOpen(true);
     };
 
-    // Updated to handle both single and multiple member deletion
     const confirmDeleteMember = async () => {
         const membersToDelete = memberToDelete ? [memberToDelete] : selectedMembers;
         if (membersToDelete.length === 0) return;
 
         try {
-            // Make API call to delete member(s)
             const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/organizations/${id}/members`, {
                 method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    user_ids: membersToDelete.map(member => member.id)
-                }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_ids: membersToDelete.map(member => member.id) }),
             });
 
-            if (!response.ok) {
-                throw new Error('Failed to delete member(s)');
-            }
+            if (!response.ok) throw new Error('Failed to delete member(s)');
 
-            // Refresh school data to get updated members list
             const membersResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/organizations/${id}/members`);
-            if (!membersResponse.ok) {
-                throw new Error('Failed to fetch updated members');
-            }
+            if (!membersResponse.ok) throw new Error('Failed to fetch updated members');
             const membersData = await membersResponse.json();
 
-            // Update school state with new members
-            setSchool(prev => prev ? {
-                ...prev,
-                members: membersData
-            } : null);
+            setSchool(prev => prev ? { ...prev, members: membersData } : null);
 
-            // Show toast notification for successful deletion
             setToastMessage({
                 title: 'The tribe has shrunk!',
                 description: membersToDelete.length === 1
@@ -287,10 +230,8 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                 emoji: '😢'
             });
             setShowToast(true);
-
         } catch (error) {
             console.error('Error deleting member(s):', error);
-            // Here you would typically show an error message to the user
         } finally {
             setIsDeleteConfirmOpen(false);
             setMemberToDelete(null);
@@ -298,26 +239,17 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
         }
     };
 
-    // Handle member selection toggle
     const handleMemberSelection = (member: TeamMember) => {
-        // Don't allow selecting yourself
         if (isCurrentUser(member)) return;
-
-        setSelectedMembers(prevSelected => {
-            // Check if this member is already selected
-            const isSelected = prevSelected.some(m => m.id === member.id);
-
-            // If selected, remove it; if not, add it
-            return isSelected
+        setSelectedMembers(prevSelected =>
+            prevSelected.some(m => m.id === member.id)
                 ? prevSelected.filter(m => m.id !== member.id)
-                : [...prevSelected, member];
-        });
+                : [...prevSelected, member]
+        );
     };
 
-    // Handle "select all" functionality
     const handleSelectAllMembers = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
-            // Filter out owner members and current user since they can't be deleted
             const selectableMembers = school?.members.filter(member =>
                 member.role !== 'owner' && !isCurrentUser(member)
             ) || [];
@@ -327,119 +259,90 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
         }
     };
 
-    // Check if all selectable members are selected
     const areAllMembersSelected = () => {
         if (!school) return false;
-        const selectableMembers = school.members.filter(member =>
-            member.role !== 'owner' && !isCurrentUser(member)
-        );
+        const selectableMembers = school.members.filter(member => member.role !== 'owner' && !isCurrentUser(member));
         return selectableMembers.length > 0 && selectedMembers.length === selectableMembers.length;
     };
 
-    // Check if there are any members that can be selected/deleted
     const hasSelectableMembers = () => {
         if (!school) return false;
-        return school.members.some(member =>
-            member.role !== 'owner' && !isCurrentUser(member)
-        );
+        return school.members.some(member => member.role !== 'owner' && !isCurrentUser(member));
     };
 
-    const handleCreateCohort = async (cohort: any) => {
-        try {
-            // Important: Navigate before closing the dialog to prevent flash of school page
-            // This navigation will unmount the current component, which implicitly closes the dialog
-            if (cohort && cohort.id) {
-                router.push(`/school/admin/${id}/cohorts/${cohort.id}`);
-            } else {
-                console.error("Cohort ID is missing in the response:", cohort);
-                // Fallback to schools page if ID is missing and close dialog
-                setIsCreateCohortDialogOpen(false);
-                router.push(`/school/admin/${id}#cohorts`);
-            }
-        } catch (error) {
-            console.error('Error handling cohort creation:', error);
+    const handleCreateCohort = (cohort: any) => {
+        if (cohort && cohort.id) {
+            router.push(`/school/admin/${id}/cohorts/${cohort.id}`);
+        } else {
+            console.error("Cohort ID is missing in the response:", cohort);
             setIsCreateCohortDialogOpen(false);
+            router.push(`/school/admin/${id}#cohorts`);
         }
     };
 
-    // Handle course creation success
     const handleCourseCreationSuccess = (courseData: { id: string; name: string }) => {
-        // Redirect to the new course page - dialog will be unmounted during navigation
         router.push(`/school/admin/${id}/courses/${courseData.id}`);
     };
 
-    // Handle tab change
     const handleTabChange = (tab: TabType) => {
         setActiveTab(tab);
-
-        // Only add hash for non-default tabs
         if (tab !== 'courses') {
             window.location.hash = tab;
         } else {
-            // Remove hash if it's the courses tab
-            if (window.location.hash && typeof window !== 'undefined' && window.history) {
-                history.pushState("", document.title, window.location.pathname);
-            }
+            history.pushState("", document.title, window.location.pathname);
+        }
+    };
+
+    const handleHubCreated = (newHub: Hub) => {
+        setHubs(prevHubs => [...prevHubs, newHub]);
+        setToastMessage({
+            title: 'Hub Created!',
+            description: `The "${newHub.name}" hub is now live.`,
+            emoji: '🎉'
+        });
+        setShowToast(true);
+    };
+
+    const refreshCohorts = async () => {
+        try {
+            const cohortsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/cohorts/?org_id=${id}`);
+            if (!cohortsResponse.ok) throw new Error('Failed to fetch updated cohorts');
+            const cohortsData = await cohortsResponse.json();
+            setSchool(prev => prev ? { ...prev, cohorts: cohortsData } : null);
+        } catch (error) {
+            console.error('Error refreshing cohorts list:', error);
         }
     };
 
     const handleCohortDelete = async (cohortId: number) => {
+        await refreshCohorts();
+        setToastMessage({
+            title: 'Cohort removed',
+            description: `Cohort has been removed from your school`,
+            emoji: '✓'
+        });
+        setShowToast(true);
+    };
+
+    const refreshCourses = async () => {
         try {
-            // Refresh school data to get updated cohorts list
-            const cohortsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/cohorts/?org_id=${id}`);
-            if (!cohortsResponse.ok) {
-                throw new Error('Failed to fetch updated cohorts');
-            }
-            const cohortsData = await cohortsResponse.json();
-
-            // Update school state with new cohorts
-            setSchool(prev => prev ? {
-                ...prev,
-                cohorts: cohortsData
-            } : null);
-
-            // Show toast notification for successful deletion
-            setToastMessage({
-                title: 'Cohort removed',
-                description: `Cohort has been removed from your school`,
-                emoji: '✓'
-            });
-            setShowToast(true);
+            const coursesResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/courses/?org_id=${id}`);
+            if (!coursesResponse.ok) throw new Error('Failed to fetch updated courses');
+            const coursesData = await coursesResponse.json();
+            setSchool(prev => prev ? { ...prev, courses: coursesData.map((c: any) => ({ id: c.id, name: c.name })) } : null);
         } catch (error) {
-            console.error('Error refreshing cohorts list:', error);
-            // Here you would typically show an error message to the user
+            console.error('Error refreshing courses list:', error);
         }
     };
 
     const handleCourseDelete = async (courseId: string | number) => {
-        try {
-            // Refresh school data to get updated courses list
-            const coursesResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/courses/?org_id=${id}`);
-            if (!coursesResponse.ok) {
-                throw new Error('Failed to fetch updated courses');
-            }
-            const coursesData = await coursesResponse.json();
-
-            // Update school state with new courses
-            setSchool(prev => prev ? {
-                ...prev,
-                courses: coursesData.map((course: any) => ({
-                    id: course.id,
-                    name: course.name,
-                }))
-            } : null);
-
-            // Show toast notification for successful deletion
-            setToastMessage({
-                title: 'Course removed',
-                description: `Course has been removed from your school`,
-                emoji: '✓'
-            });
-            setShowToast(true);
-        } catch (error) {
-            console.error('Error refreshing courses list:', error);
-            // Here you would typically show an error message to the user
-        }
+        await refreshCourses();
+        setToastMessage({
+            title: 'Course removed',
+            description: `Course has been removed from your school`,
+            emoji: '✓'
+        });
+        setShowToast(true);
     };
 
     if (loading) {
@@ -456,6 +359,7 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
     if (!school) {
         return (
             <div className="min-h-screen bg-black text-white flex items-center justify-center">
+                <Header showCreateCourseButton={false} />
                 <p>School not found</p>
             </div>
         );
@@ -464,11 +368,10 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
     return (
         <>
             <Header showCreateCourseButton={false} />
-
             <div className="min-h-screen bg-black text-white">
                 <div className="container mx-auto px-4 py-8">
                     <main>
-                        {/* School header with title */}
+                        {/* School header */}
                         <div className="mb-10">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center">
@@ -487,11 +390,8 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                                             >
                                                 {school.name}
                                             </h1>
-                                            {/* <button
-                                                onClick={toggleNameEdit}
-                                                className="ml-2 p-2 text-gray-400 hover:text-white"
-                                                aria-label={isEditingName ? "Save school name" : "Edit school name"}
-                                            >
+                                            {/* Edit button can be re-enabled if needed */}
+                                            {/* <button onClick={toggleNameEdit} className="ml-2 p-2 text-gray-400 hover:text-white">
                                                 {isEditingName ? <Save size={16} /> : <Edit size={16} />}
                                             </button> */}
                                         </div>
@@ -512,61 +412,38 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                             </div>
                         </div>
 
-                        {/* Tabs for navigation */}
+                        {/* Tabs */}
                         <div className="mb-8">
                             <div className="flex border-b border-gray-800">
-                                <button
-                                    className={`px-4 py-2 font-light cursor-pointer ${activeTab === 'courses' ? 'text-white border-b-2 border-white' : 'text-gray-400 hover:text-white'}`}
-                                    onClick={() => handleTabChange('courses')}
-                                >
-                                    <div className="flex items-center">
-                                        <BookOpen size={16} className="mr-2" />
-                                        Courses
-                                    </div>
+                                <button className={`px-4 py-2 font-light flex items-center ${activeTab === 'courses' ? 'text-white border-b-2 border-white' : 'text-gray-400 hover:text-white'}`} onClick={() => handleTabChange('courses')}>
+                                    <BookOpen size={16} className="mr-2" /> Courses
                                 </button>
-                                <button
-                                    className={`px-4 py-2 font-light cursor-pointer ${activeTab === 'cohorts' ? 'text-white border-b-2 border-white' : 'text-gray-400 hover:text-white'}`}
-                                    onClick={() => handleTabChange('cohorts')}
-                                >
-                                    <div className="flex items-center">
-                                        <Layers size={16} className="mr-2" />
-                                        Cohorts
-                                    </div>
+                                <button className={`px-4 py-2 font-light flex items-center ${activeTab === 'cohorts' ? 'text-white border-b-2 border-white' : 'text-gray-400 hover:text-white'}`} onClick={() => handleTabChange('cohorts')}>
+                                    <Layers size={16} className="mr-2" /> Cohorts
                                 </button>
-                                <button
-                                    className={`px-4 py-2 font-light cursor-pointer ${activeTab === 'members' ? 'text-white border-b-2 border-white' : 'text-gray-400 hover:text-white'}`}
-                                    onClick={() => handleTabChange('members')}
-                                >
-                                    <div className="flex items-center">
-                                        <Users size={16} className="mr-2" />
-                                        Team
-                                    </div>
+                                <button className={`px-4 py-2 font-light flex items-center ${activeTab === 'members' ? 'text-white border-b-2 border-white' : 'text-gray-400 hover:text-white'}`} onClick={() => handleTabChange('members')}>
+                                    <Users size={16} className="mr-2" /> Team
+                                </button>
+                                <button className={`px-4 py-2 font-light flex items-center ${activeTab === 'hubs' ? 'text-white border-b-2 border-white' : 'text-gray-400 hover:text-white'}`} onClick={() => handleTabChange('hubs')}>
+                                    <MessageSquare size={16} className="mr-2" /> Hubs
                                 </button>
                             </div>
                         </div>
 
-                        {/* Tab content */}
+                        {/* Tab Content */}
                         <div>
-                            {/* Courses Tab */}
                             {activeTab === 'courses' && (
                                 <div>
                                     {school.courses.length > 0 ? (
                                         <>
                                             <div className="flex justify-start items-center mb-6">
-                                                <button
-                                                    onClick={() => setIsCreateCourseDialogOpen(true)}
-                                                    className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity inline-block cursor-pointer"
-                                                >
+                                                <button onClick={() => setIsCreateCourseDialogOpen(true)} className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity">
                                                     Create course
                                                 </button>
                                             </div>
-
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                                 {school.courses.map(course => (
-                                                    <CourseCard key={course.id} course={{
-                                                        id: course.id,
-                                                        title: course.name,
-                                                    }} onDelete={handleCourseDelete} />
+                                                    <CourseCard key={course.id} course={{ id: course.id, title: course.name }} onDelete={handleCourseDelete} />
                                                 ))}
                                             </div>
                                         </>
@@ -574,10 +451,7 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                                         <div className="flex flex-col items-center justify-center py-20">
                                             <h2 className="text-4xl font-light mb-4">What if your next big idea became a course?</h2>
                                             <p className="text-gray-400 mb-8">It might be easier than you think</p>
-                                            <button
-                                                onClick={() => setIsCreateCourseDialogOpen(true)}
-                                                className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity inline-block cursor-pointer"
-                                            >
+                                            <button onClick={() => setIsCreateCourseDialogOpen(true)} className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity">
                                                 Create course
                                             </button>
                                         </div>
@@ -585,30 +459,18 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                                 </div>
                             )}
 
-                            {/* Cohorts Tab */}
                             {activeTab === 'cohorts' && (
                                 <div>
                                     {school.cohorts.length > 0 ? (
                                         <>
                                             <div className="flex justify-start items-center mb-6">
-                                                <button
-                                                    className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity focus:outline-none cursor-pointer"
-                                                    onClick={() => {
-                                                        setIsCreateCohortDialogOpen(true);
-                                                    }}
-                                                >
+                                                <button onClick={() => setIsCreateCohortDialogOpen(true)} className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity">
                                                     Create cohort
                                                 </button>
                                             </div>
-
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                                 {school.cohorts.map(cohort => (
-                                                    <CohortCard
-                                                        key={cohort.id}
-                                                        cohort={cohort}
-                                                        schoolId={school.id}
-                                                        onDelete={handleCohortDelete}
-                                                    />
+                                                    <CohortCard key={cohort.id} cohort={cohort} schoolId={school.id} onDelete={handleCohortDelete} />
                                                 ))}
                                             </div>
                                         </>
@@ -616,12 +478,7 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                                         <div className="flex flex-col items-center justify-center py-20">
                                             <h2 className="text-4xl font-light mb-4">Bring your courses to life with cohorts</h2>
                                             <p className="text-gray-400 mb-8">Create groups of learners and assign them courses to learn together</p>
-                                            <button
-                                                className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity focus:outline-none cursor-pointer"
-                                                onClick={() => {
-                                                    setIsCreateCohortDialogOpen(true);
-                                                }}
-                                            >
+                                            <button onClick={() => setIsCreateCohortDialogOpen(true)} className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity">
                                                 Create cohort
                                             </button>
                                         </div>
@@ -629,27 +486,19 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                                 </div>
                             )}
 
-                            {/* Team Tab */}
                             {activeTab === 'members' && (
                                 <div>
                                     <div className="flex justify-start items-center mb-6 gap-4">
-                                        <button
-                                            className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity focus:outline-none cursor-pointer"
-                                            onClick={() => setIsInviteDialogOpen(true)}
-                                        >
+                                        <button onClick={() => setIsInviteDialogOpen(true)} className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity">
                                             Invite members
                                         </button>
                                         {selectedMembers.length > 0 && (
-                                            <button
-                                                className="px-6 py-3 bg-red-800 text-white text-sm font-medium rounded-full hover:bg-red-900 transition-colors focus:outline-none cursor-pointer flex items-center"
-                                                onClick={handleDeleteSelectedMembers}
-                                            >
+                                            <button onClick={handleDeleteSelectedMembers} className="px-6 py-3 bg-red-800 text-white text-sm font-medium rounded-full hover:bg-red-900 transition-colors flex items-center">
                                                 <Trash2 size={16} className="mr-2" />
                                                 Remove ({selectedMembers.length})
                                             </button>
                                         )}
                                     </div>
-
                                     <div className="overflow-hidden rounded-lg border border-gray-800">
                                         <table className="min-w-full divide-y divide-gray-800">
                                             <thead className="bg-gray-900">
@@ -657,18 +506,13 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                                                     <th scope="col" className="w-10 px-3 py-3 text-left">
                                                         <div className="flex items-center justify-center">
                                                             {hasSelectableMembers() && (
-                                                                <input
-                                                                    type="checkbox"
-                                                                    className="h-5 w-5 rounded-md border-2 border-purple-600 text-white appearance-none checked:bg-purple-600 focus:ring-2 focus:ring-purple-500 focus:ring-opacity-30 focus:outline-none bg-[#111111] cursor-pointer transition-all duration-200 ease-in-out hover:border-purple-500 relative before:content-[''] before:absolute before:top-1/2 before:left-1/2 before:-translate-y-1/2 before:-translate-x-1/2 before:w-2.5 before:h-2.5 before:opacity-0 before:bg-white checked:before:opacity-100 checked:before:scale-100 before:scale-0 before:rounded-sm before:transition-all before:duration-200 checked:border-transparent"
-                                                                    checked={areAllMembersSelected()}
-                                                                    onChange={handleSelectAllMembers}
-                                                                    title="Select all members"
-                                                                />
+                                                                <input type="checkbox" className="h-5 w-5 rounded-md border-2 border-purple-600 text-white appearance-none checked:bg-purple-600 focus:ring-2 focus:ring-purple-500 bg-[#111111] cursor-pointer" checked={areAllMembersSelected()} onChange={handleSelectAllMembers} title="Select all members" />
                                                             )}
                                                         </div>
                                                     </th>
                                                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Email</th>
                                                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Role</th>
+                                                    <th scope="col" className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-[#111] divide-y divide-gray-800">
@@ -677,26 +521,19 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                                                         <td className="w-10 px-4 py-4 whitespace-nowrap">
                                                             <div className="flex justify-center">
                                                                 {member.role !== 'owner' && !isCurrentUser(member) && (
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        className="h-5 w-5 rounded-md border-2 border-purple-600 text-white appearance-none checked:bg-purple-600 focus:ring-2 focus:ring-purple-500 focus:ring-opacity-30 focus:outline-none bg-[#111111] cursor-pointer transition-all duration-200 ease-in-out hover:border-purple-500 relative before:content-[''] before:absolute before:top-1/2 before:left-1/2 before:-translate-y-1/2 before:-translate-x-1/2 before:w-2.5 before:h-2.5 before:opacity-0 before:bg-white checked:before:opacity-100 checked:before:scale-100 before:scale-0 before:rounded-sm before:transition-all before:duration-200 checked:border-transparent"
-                                                                        checked={selectedMembers.some(m => m.id === member.id)}
-                                                                        onChange={() => handleMemberSelection(member)}
-                                                                    />
+                                                                    <input type="checkbox" className="h-5 w-5 rounded-md border-2 border-purple-600 text-white appearance-none checked:bg-purple-600 focus:ring-2 focus:ring-purple-500 bg-[#111111] cursor-pointer" checked={selectedMembers.some(m => m.id === member.id)} onChange={() => handleMemberSelection(member)} />
                                                                 )}
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{member.email}</td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm flex justify-between items-center">
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
                                                             <span className={`inline-flex items-center px-3 py-0.5 rounded-full text-xs font-medium ${member.role === 'owner' ? 'bg-purple-900 text-purple-200' : 'bg-gray-800 text-gray-300'}`}>
                                                                 {member.role === 'owner' ? 'Owner' : 'Admin'}
                                                             </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                                             {member.role !== 'owner' && !isCurrentUser(member) && (
-                                                                <button
-                                                                    onClick={() => handleDeleteMember(member)}
-                                                                    className="flex items-center gap-1 text-gray-400 hover:text-red-500 transition-colors focus:outline-none cursor-pointer"
-                                                                    aria-label="Remove Member"
-                                                                >
+                                                                <button onClick={() => handleDeleteMember(member)} className="text-gray-400 hover:text-red-500 transition-colors" aria-label="Remove Member">
                                                                     <Trash2 size={18} />
                                                                 </button>
                                                             )}
@@ -708,22 +545,43 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                                     </div>
                                 </div>
                             )}
+
+                            {activeTab === 'hubs' && (
+                                <div>
+                                    <div className="flex justify-start items-center mb-6">
+                                        <button onClick={() => setIsCreateHubDialogOpen(true)} className="px-6 py-3 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity flex items-center">
+                                            <Plus size={16} className="mr-2" /> Create Hub
+                                        </button>
+                                    </div>
+                                    {isLoadingHubs ? (
+                                        <div className="flex justify-center items-center py-12"><div className="w-10 h-10 border-t-2 border-b-2 border-white rounded-full animate-spin"></div></div>
+                                    ) : hubsError ? (
+                                        <p className="text-center text-red-500">{hubsError}</p>
+                                    ) : hubs.length > 0 ? (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                            {hubs.map(hub => (
+                                                <HubCard key={hub.id} hub={hub} schoolId={id} />
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center py-20">
+                                            <h2 className="text-4xl font-light mb-4">Create a hub to build your community</h2>
+                                            <p className="text-gray-400 mb-8">Hubs are discussion forums for your school members</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </main>
                 </div>
             </div>
 
-            {/* Invite Members Dialog */}
-            <InviteMembersDialog
-                open={isInviteDialogOpen}
-                onClose={() => setIsInviteDialogOpen(false)}
-                onInvite={handleInviteMembers}
-            />
-
-            {/* Delete Member Confirmation Dialog */}
+            {/* Dialogs and Toasts */}
+            <InviteMembersDialog open={isInviteDialogOpen} onClose={() => setIsInviteDialogOpen(false)} onInvite={handleInviteMembers} />
+            
             <ConfirmationDialog
                 show={isDeleteConfirmOpen}
-                title={memberToDelete || selectedMembers.length == 1 ? "Remove member" : "Remove selected members"}
+                title={memberToDelete || selectedMembers.length === 1 ? "Remove member" : "Remove selected members"}
                 message={memberToDelete
                     ? `Are you sure you want to remove ${memberToDelete.email} from this organization?`
                     : `Are you sure you want to remove ${selectedMembers.length} ${selectedMembers.length === 1 ? 'member' : 'members'} from this organization?`
@@ -734,30 +592,13 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                 type="delete"
             />
 
-            {/* Create cohort Dialog */}
-            <CreateCohortDialog
-                open={isCreateCohortDialogOpen}
-                onClose={() => setIsCreateCohortDialogOpen(false)}
-                onCreateCohort={handleCreateCohort}
-                schoolId={id}
-            />
-
-            {/* Create course Dialog */}
-            <CreateCourseDialog
-                open={isCreateCourseDialogOpen}
-                onClose={() => setIsCreateCourseDialogOpen(false)}
-                onSuccess={handleCourseCreationSuccess}
-                schoolId={id}
-            />
-
-            {/* Toast notification */}
-            <Toast
-                show={showToast}
-                title={toastMessage.title}
-                description={toastMessage.description}
-                emoji={toastMessage.emoji}
-                onClose={() => setShowToast(false)}
-            />
+            <CreateCohortDialog open={isCreateCohortDialogOpen} onClose={() => setIsCreateCohortDialogOpen(false)} onCreateCohort={handleCreateCohort} schoolId={id} />
+            
+            <CreateCourseDialog open={isCreateCourseDialogOpen} onClose={() => setIsCreateCourseDialogOpen(false)} onSuccess={handleCourseCreationSuccess} schoolId={id} />
+            
+            <CreateHubDialog open={isCreateHubDialogOpen} onClose={() => setIsCreateHubDialogOpen(false)} schoolId={id} onHubCreated={handleHubCreated} />
+            
+            <Toast show={showToast} title={toastMessage.title} description={toastMessage.description} emoji={toastMessage.emoji} onClose={() => setShowToast(false)} />
         </>
     );
-} 
+}

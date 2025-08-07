@@ -55,6 +55,11 @@ task_generation_jobs_table_name = "task_generation_jobs"
 org_api_keys_table_name = "org_api_keys"
 code_drafts_table_name = "code_drafts"
 
+hubs_table_name = "hubs"
+posts_table_name = "posts"
+post_votes_table_name = "post_votes"
+post_links_table_name = "post_links"
+
 UPLOAD_FOLDER_NAME = "uploads"
 
 uncategorized_milestone_name = "[UNASSIGNED]"

@@ -1,3 +1,5 @@
+// adityavofficial-hyperge-hackathon-2025/sensai-frontend/src/lib/api.ts
+
 "use client";
 
 import { useAuth } from "./auth";
@@ -36,6 +38,36 @@ export interface School {
   role?: string;
   slug?: string;
   // Add other fields as needed
+}
+
+// Hub and Post interfaces for the new feature
+export interface Hub {
+  id: number;
+  name: string;
+  description: string;
+}
+
+export interface Post {
+  id: number;
+  title: string;
+  content: string;
+  post_type: string;
+  created_at: string;
+  author: string;
+  votes: number;
+  comment_count: number;
+}
+
+export interface Comment {
+    id: number;
+    content: string;
+    created_at: string;
+    author: string;
+    votes: number;
+}
+
+export interface PostWithComments extends Post {
+    comments: Comment[];
 }
 
 /**
@@ -316,3 +348,93 @@ export const addModule = async (courseId: string, schoolId: string, modules: Mod
       setActiveModuleId(newModule.id);
   }
 };
+
+/**
+ * Hook to fetch all learning hubs for a school
+ */
+export function useHubs(schoolId: string) {
+    const [hubs, setHubs] = useState<Hub[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<Error | null>(null);
+
+    useEffect(() => {
+        if (!schoolId) return;
+        
+        const fetchHubs = async () => {
+            setIsLoading(true);
+            try {
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/organization/${schoolId}`);
+                if (!response.ok) throw new Error('Failed to fetch hubs.');
+                const data = await response.json();
+                setHubs(data);
+            } catch (err) {
+                setError(err as Error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchHubs();
+    }, [schoolId]);
+
+    return { hubs, isLoading, error, setHubs };
+}
+
+/**
+ * Hook to fetch all posts for a specific hub
+ */
+export function usePosts(hubId: string) {
+    const [posts, setPosts] = useState<Post[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<Error | null>(null);
+
+    useEffect(() => {
+        if (!hubId) return;
+
+        const fetchPosts = async () => {
+            setIsLoading(true);
+            try {
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/${hubId}/posts`);
+                if (!response.ok) throw new Error('Failed to fetch posts.');
+                const data = await response.json();
+                setPosts(data);
+            } catch (err) {
+                setError(err as Error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchPosts();
+    }, [hubId]);
+
+    return { posts, isLoading, error, setPosts };
+}
+
+/**
+ * Hook to fetch a single post and its comments
+ */
+export function usePost(postId: string) {
+    const [post, setPost] = useState<PostWithComments | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<Error | null>(null);
+
+    useEffect(() => {
+        if (!postId) return;
+
+        const fetchPost = async () => {
+            setIsLoading(true);
+            try {
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts/${postId}`);
+                if (!response.ok) throw new Error('Failed to fetch post.');
+                const data = await response.json();
+                setPost(data);
+            } catch (err) {
+                setError(err as Error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchPost();
+    }, [postId]);
+
+    return { post, isLoading, error, setPost };
+}

@@ -705,3 +705,36 @@ class SaveCodeDraftRequest(BaseModel):
 class CodeDraft(BaseModel):
     id: int
     code: List[LanguageCodeDraft]
+class CreateHubRequest(BaseModel):
+    org_id: int
+    name: str
+    description: Optional[str] = None
+
+class Hub(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+
+class CreatePostRequest(BaseModel):
+    hub_id: int
+    user_id: int
+    title: Optional[str] = None
+    content: str
+    post_type: Literal["thread", "question", "note", "reply"]
+    parent_id: Optional[int] = None
+
+class PostVoteRequest(BaseModel):
+    user_id: int
+    vote_type: Literal["helpful"]
+
+class Post(BaseModel):
+    id: int
+    title: Optional[str] = None
+    content: str
+    post_type: str
+    created_at: datetime
+    author: str
+    votes: int
+
+class PostWithComments(Post):
+    comments: List[Post]

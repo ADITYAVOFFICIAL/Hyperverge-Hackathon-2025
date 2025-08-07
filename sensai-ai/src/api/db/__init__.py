@@ -1,3 +1,5 @@
+# adityavofficial-hyperverge-hackathon-2025/sensai-ai/src/api/db/__init__.py
+
 import os
 from os.path import exists
 from api.utils.db import get_new_db_connection, check_table_exists, set_db_defaults
@@ -28,6 +30,87 @@ from api.config import (
     org_api_keys_table_name,
     code_drafts_table_name,
 )
+
+# New table names for Learning Hub
+hubs_table_name = "hubs"
+posts_table_name = "posts"
+post_votes_table_name = "post_votes"
+post_links_table_name = "post_links"
+
+
+async def create_hubs_table(cursor):
+    """Creates the hubs table for storing learning hub topics."""
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {hubs_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                org_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (org_id) REFERENCES {organizations_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_hubs_org_id ON {hubs_table_name} (org_id)"""
+    )
+
+
+async def create_posts_table(cursor):
+    """Creates the posts table for storing user-generated content in hubs."""
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {posts_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hub_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                parent_id INTEGER,
+                title TEXT,
+                content TEXT NOT NULL,
+                post_type TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (hub_id) REFERENCES {hubs_table_name}(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
+                FOREIGN KEY (parent_id) REFERENCES {posts_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_posts_hub_id ON {posts_table_name} (hub_id)"""
+    )
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_posts_user_id ON {posts_table_name} (user_id)"""
+    )
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_posts_parent_id ON {posts_table_name} (parent_id)"""
+    )
+
+
+async def create_post_votes_table(cursor):
+    """Creates the post_votes table to manage the reputation system."""
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {post_votes_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                vote_type TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(post_id, user_id, vote_type),
+                FOREIGN KEY (post_id) REFERENCES {posts_table_name}(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
+
+
+async def create_post_links_table(cursor):
+    """Creates the post_links table to associate posts with learning artifacts."""
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {post_links_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id INTEGER NOT NULL,
+                item_type TEXT NOT NULL,
+                item_id INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (post_id) REFERENCES {posts_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
 
 
 async def create_organizations_table(cursor):
@@ -496,6 +579,12 @@ async def init_db():
             await create_course_generation_jobs_table(cursor)
             await create_task_generation_jobs_table(cursor)
             await create_code_drafts_table(cursor)
+
+            # Create new hub tables
+            await create_hubs_table(cursor)
+            await create_posts_table(cursor)
+            await create_post_votes_table(cursor)
+            await create_post_links_table(cursor)
 
             await conn.commit()
 
