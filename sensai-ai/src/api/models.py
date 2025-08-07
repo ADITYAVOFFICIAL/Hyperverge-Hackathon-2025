@@ -730,7 +730,7 @@ class CreatePostRequest(BaseModel):
 
 class PostVoteRequest(BaseModel):
     user_id: int
-    vote_type: Literal["up", "down"]
+    vote_type: Optional[Literal["up", "down"]] = None
     is_comment: bool
 
 

@@ -306,12 +306,14 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
     const handleHubDelete = async () => {
         if (!hubToDelete) return;
         try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/${hubToDelete}`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/${hubToDelete}/`, {
                 method: 'DELETE',
             });
 
             if (!response.ok) {
-                throw new Error('Failed to delete hub');
+                const errorData = await response.json().catch(() => ({}));
+                const errorMessage = errorData.detail || `Failed to delete hub (status: ${response.status})`;
+                throw new Error(errorMessage);
             }
 
             setHubs(prev => prev.filter(h => h.id !== hubToDelete));
@@ -323,6 +325,12 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
             setShowToast(true);
         } catch (error) {
             console.error("Error deleting hub:", error);
+            setToastMessage({
+                title: 'Error Deleting Hub',
+                description: error instanceof Error ? error.message : 'An unknown error occurred.',
+                emoji: '❌'
+            });
+            setShowToast(true);
         } finally {
             setHubToDelete(null);
         }

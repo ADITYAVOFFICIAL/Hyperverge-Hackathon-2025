@@ -224,8 +224,23 @@ export default function PostPage() {
     if (userVote === type) {
       return type === 'up' ? 'text-green-500' : 'text-red-500';
     }
-    return 'text-gray-400 hover:text-white';
+    return 'text-gray-400';
   };
+
+  if (loading) {
+    return (
+      <>
+        <Header />
+        <div className="min-h-screen bg-black text-white">
+          <main className="max-w-4xl mx-auto pt-6 px-8 pb-12">
+            <div className="flex justify-center items-center py-20">
+              <div className="w-12 h-12 border-t-2 border-b-2 border-white rounded-full animate-spin"></div>
+            </div>
+          </main>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -236,12 +251,6 @@ export default function PostPage() {
             <ArrowLeft size={16} className="mr-2" />
             Back to Hub
           </button>
-
-          {loading && (
-            <div className="flex justify-center items-center py-20">
-              <div className="w-12 h-12 border-t-2 border-b-2 border-white rounded-full animate-spin"></div>
-            </div>
-          )}
 
           {error && <p className="text-center text-red-500 py-20">{error}</p>}
 
