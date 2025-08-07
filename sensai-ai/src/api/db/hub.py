@@ -27,6 +27,18 @@ async def create_hub(org_id: int, name: str, description: Optional[str]) -> int:
         (org_id, name, description),
         get_last_row_id=True
     )
+async def delete_hub_from_db(hub_id: int):
+    """
+    Deletes a hub and all its associated posts from the database.
+    The ON DELETE CASCADE foreign key on the posts table handles post deletion.
+
+    Args:
+        hub_id: The ID of the hub to delete.
+    """
+    await execute_db_operation(
+        f"DELETE FROM {hubs_table_name} WHERE id = ?",
+        (hub_id,)
+    )
 
 async def get_hubs_by_org(org_id: int) -> List[Dict]:
     """

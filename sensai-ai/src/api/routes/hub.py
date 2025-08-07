@@ -25,6 +25,16 @@ async def create_hub(request: CreateHubRequest) -> Hub:
         "name": request.name,
         "description": request.description
     }
+@router.delete("/{hub_id}", response_model=Dict[str, bool])
+async def delete_hub(hub_id: int) -> Dict[str, bool]:
+    """
+    Deletes a hub and all of its associated posts.
+    """
+    try:
+        await hub_db.delete_hub_from_db(hub_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/organization/{org_id}", response_model=List[Hub])
 async def get_hubs_for_organization(org_id: int) -> List[Hub]:

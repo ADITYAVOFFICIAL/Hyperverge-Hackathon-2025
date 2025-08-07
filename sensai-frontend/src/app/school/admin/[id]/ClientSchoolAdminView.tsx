@@ -16,6 +16,7 @@ import { Cohort, TeamMember, Course } from "@/types";
 import { useHubs, Hub } from "@/lib/api";
 import HubCard from "@/components/HubCard";
 import CreateHubDialog from "@/components/CreateHubDialog";
+import { useAuth } from "@/lib/auth";
 
 interface School {
     id: number;
@@ -51,6 +52,7 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
 
     const { hubs, setHubs, isLoading: isLoadingHubs, error: hubsError } = useHubs(id);
     const [isCreateHubDialogOpen, setIsCreateHubDialogOpen] = useState(false);
+    const [hubToDelete, setHubToDelete] = useState<number | null>(null);
 
     // Add useEffect to automatically hide toast after 5 seconds
     useEffect(() => {
@@ -239,6 +241,44 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
         }
     };
 
+    const handleDeleteHub = (hubId: number) => {
+        setHubToDelete(hubId);
+    };
+
+    const confirmDeleteHub = async () => {
+        if (!hubToDelete) return;
+
+        try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/${hubToDelete}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to delete hub');
+            }
+
+            const deletedHubName = hubs.find(h => h.id === hubToDelete)?.name || 'The hub';
+            setHubs(hubs.filter(hub => hub.id !== hubToDelete));
+            setToastMessage({
+                title: 'Hub Deleted',
+                description: `${deletedHubName} and all its posts have been removed.`,
+                emoji: '🗑️'
+            });
+            setShowToast(true);
+
+        } catch (error) {
+            console.error('Error deleting hub:', error);
+            setToastMessage({
+                title: 'Error',
+                description: 'Failed to delete the hub. Please try again.',
+                emoji: '😢'
+            });
+            setShowToast(true);
+        } finally {
+            setHubToDelete(null);
+        }
+    };
+
     const handleMemberSelection = (member: TeamMember) => {
         if (isCurrentUser(member)) return;
         setSelectedMembers(prevSelected =>
@@ -280,7 +320,7 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
         }
     };
 
-    const handleCourseCreationSuccess = (courseData: { id: string; name: string }) => {
+    const handleCourseCreated = (courseData: { id: string; name: string }) => {
         router.push(`/school/admin/${id}/courses/${courseData.id}`);
     };
 
@@ -556,11 +596,11 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                                     {isLoadingHubs ? (
                                         <div className="flex justify-center items-center py-12"><div className="w-10 h-10 border-t-2 border-b-2 border-white rounded-full animate-spin"></div></div>
                                     ) : hubsError ? (
-                                        <p className="text-center text-red-500">{hubsError}</p>
+                                        <p className="text-center text-red-500">{hubsError.message}</p>
                                     ) : hubs.length > 0 ? (
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                             {hubs.map(hub => (
-                                                <HubCard key={hub.id} hub={hub} schoolId={id} />
+                                                <HubCard key={hub.id} hub={hub} schoolId={id} onDelete={handleDeleteHub} />
                                             ))}
                                         </div>
                                     ) : (
@@ -577,28 +617,57 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
             </div>
 
             {/* Dialogs and Toasts */}
-            <InviteMembersDialog open={isInviteDialogOpen} onClose={() => setIsInviteDialogOpen(false)} onInvite={handleInviteMembers} />
-            
-            <ConfirmationDialog
-                show={isDeleteConfirmOpen}
-                title={memberToDelete || selectedMembers.length === 1 ? "Remove member" : "Remove selected members"}
-                message={memberToDelete
-                    ? `Are you sure you want to remove ${memberToDelete.email} from this organization?`
-                    : `Are you sure you want to remove ${selectedMembers.length} ${selectedMembers.length === 1 ? 'member' : 'members'} from this organization?`
-                }
-                confirmButtonText="Remove"
-                onConfirm={confirmDeleteMember}
-                onCancel={() => setIsDeleteConfirmOpen(false)}
-                type="delete"
+            <CreateCourseDialog
+                open={isCreateCourseDialogOpen}
+                onClose={() => setIsCreateCourseDialogOpen(false)}
+                schoolId={id}
+                onCourseCreated={handleCourseCreated}
             />
-
-            <CreateCohortDialog open={isCreateCohortDialogOpen} onClose={() => setIsCreateCohortDialogOpen(false)} onCreateCohort={handleCreateCohort} schoolId={id} />
-            
-            <CreateCourseDialog open={isCreateCourseDialogOpen} onClose={() => setIsCreateCourseDialogOpen(false)} onSuccess={handleCourseCreationSuccess} schoolId={id} />
-            
-            <CreateHubDialog open={isCreateHubDialogOpen} onClose={() => setIsCreateHubDialogOpen(false)} schoolId={id} onHubCreated={handleHubCreated} />
-            
-            <Toast show={showToast} title={toastMessage.title} description={toastMessage.description} emoji={toastMessage.emoji} onClose={() => setShowToast(false)} />
+            <CreateHubDialog
+                open={isCreateHubDialogOpen}
+                onClose={() => setIsCreateHubDialogOpen(false)}
+                schoolId={id}
+                onHubCreated={handleHubCreated}
+            />
+            <InviteMembersDialog
+                open={isInviteDialogOpen}
+                onClose={() => setIsInviteDialogOpen(false)}
+                schoolId={id}
+                onInviteSent={handleInviteMembers}
+            />
+            {isDeleteConfirmOpen && (
+                <ConfirmationDialog
+                    open={isDeleteConfirmOpen}
+                    title={`Remove ${memberToDelete ? 'Member' : `${selectedMembers.length} Members`}?`}
+                    message={
+                        memberToDelete
+                            ? `Are you sure you want to remove ${memberToDelete.email} from the school?`
+                            : `Are you sure you want to remove ${selectedMembers.length} members from the school?`
+                    }
+                    confirmButtonText="Remove"
+                    onConfirm={confirmDeleteMember}
+                    onCancel={() => setIsDeleteConfirmOpen(false)}
+                    type="delete"
+                />
+            )}
+            {hubToDelete !== null && (
+                 <ConfirmationDialog
+                    open={hubToDelete !== null}
+                    title="Delete Hub?"
+                    message="Are you sure you want to delete this hub? All posts within it will be permanently removed. This action cannot be undone."
+                    confirmButtonText="Delete Hub"
+                    onConfirm={confirmDeleteHub}
+                    onCancel={() => setHubToDelete(null)}
+                    type="delete"
+                />
+            )}
+            <Toast
+                show={showToast}
+                title={toastMessage.title}
+                description={toastMessage.description}
+                emoji={toastMessage.emoji}
+                onClose={() => setShowToast(false)}
+            />
         </>
     );
 }
