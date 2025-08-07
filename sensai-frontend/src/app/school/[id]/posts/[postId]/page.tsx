@@ -23,6 +23,12 @@ interface Comment extends Votable {
   author: string;
 }
 
+interface PollOption {
+  id: number;
+  option_text: string;
+  votes: number;
+}
+
 interface Post extends Votable {
   hub_id: number;
   title: string;
@@ -31,6 +37,8 @@ interface Post extends Votable {
   created_at: string;
   author:string;
   comments: Comment[];
+  poll_options?: PollOption[];
+  user_poll_vote?: number | null; // ID of the option the user voted for
 }
 
 // --- Main Page Component ---
@@ -124,6 +132,62 @@ export default function PostPage() {
       alert("Failed to delete. Please try again.");
     } finally {
       setItemToDelete(null);
+    }
+  };
+
+  const handlePollVote = async (optionId: number) => {
+    if (!user || !post) {
+      alert("Please log in to vote.");
+      return;
+    }
+
+    const originalPostState = { ...post };
+
+    // Optimistic update
+    setPost(prevPost => {
+      if (!prevPost || !prevPost.poll_options) return prevPost;
+
+      const newOptions = prevPost.poll_options.map(opt => {
+        // If user is re-voting for the same option, we'll un-vote.
+        // The API should handle this logic, but we reflect it optimistically.
+        if (opt.id === optionId && prevPost.user_poll_vote === optionId) {
+          return { ...opt, votes: opt.votes - 1 };
+        }
+        // If user is changing vote
+        if (prevPost.user_poll_vote && opt.id === prevPost.user_poll_vote) {
+          return { ...opt, votes: opt.votes - 1 };
+        }
+        // New vote
+        if (opt.id === optionId) {
+          return { ...opt, votes: opt.votes + 1 };
+        }
+        return opt;
+      });
+      
+      const newUserVote = prevPost.user_poll_vote === optionId ? null : optionId;
+
+      return { ...prevPost, poll_options: newOptions, user_poll_vote: newUserVote };
+    });
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts/polls/${optionId}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to submit poll vote.');
+      }
+      
+      // Fetch the latest post state to ensure data is in sync
+      fetchPost();
+
+    } catch (err) {
+      console.error("Failed to vote on poll:", err);
+      alert("There was an error submitting your vote. Please try again.");
+      // Revert on failure
+      setPost(originalPostState);
     }
   };
 
@@ -277,6 +341,29 @@ export default function PostPage() {
                   readOnly={true}
                 />
               </div>
+
+              {post.post_type === 'poll' && post.poll_options && (
+                <div className="mt-8 space-y-3">
+                  {post.poll_options.map(option => {
+                    const totalVotes = post.poll_options?.reduce((acc, opt) => acc + opt.votes, 0) || 1;
+                    const percentage = totalVotes > 0 ? (option.votes / totalVotes) * 100 : 0;
+                    const isVotedByUser = post.user_poll_vote === option.id;
+
+                    return (
+                      <div key={option.id} onClick={() => handlePollVote(option.id)} className="relative bg-[#1A1A1A] p-3 rounded-lg cursor-pointer border-2 border-transparent hover:border-purple-500 transition-colors">
+                        <div
+                          className={`absolute top-0 left-0 h-full bg-purple-500/20 rounded-md ${isVotedByUser ? 'bg-purple-500/40' : ''}`}
+                          style={{ width: `${percentage}%`, transition: 'width 0.5s ease-in-out' }}
+                        ></div>
+                        <div className="relative flex justify-between items-center">
+                          <span className={`font-medium ${isVotedByUser ? 'text-purple-300' : 'text-white'}`}>{option.option_text}</span>
+                          <span className="text-sm text-gray-400">{option.votes} vote{option.votes !== 1 ? 's' : ''} ({percentage.toFixed(0)}%)</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="relative group flex items-center gap-2 text-gray-400 mt-6 border-t border-b border-gray-800 py-2">
                 <button onClick={() => handleVote(post.id, false, 'up')} className={`p-1 rounded-full hover:bg-gray-700 ${getVoteButtonClass(post.user_vote, 'up')}`}>
