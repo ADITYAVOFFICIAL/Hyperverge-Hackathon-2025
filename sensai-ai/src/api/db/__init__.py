@@ -44,7 +44,7 @@ async def create_organizations_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_org_slug ON {organizations_table_name} (slug)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_org_slug ON {organizations_table_name} (slug)"""
     )
 
 
@@ -60,11 +60,11 @@ async def create_org_api_keys_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_org_api_key_org_id ON {org_api_keys_table_name} (org_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_org_api_key_org_id ON {org_api_keys_table_name} (org_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_org_api_key_hashed_key ON {org_api_keys_table_name} (hashed_key)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_org_api_key_hashed_key ON {org_api_keys_table_name} (hashed_key)"""
     )
 
 
@@ -97,11 +97,11 @@ async def create_user_organizations_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_user_org_user_id ON {user_organizations_table_name} (user_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_user_org_user_id ON {user_organizations_table_name} (user_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_user_org_org_id ON {user_organizations_table_name} (org_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_user_org_org_id ON {user_organizations_table_name} (org_id)"""
     )
 
 
@@ -117,7 +117,7 @@ async def create_cohort_tables(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_cohort_org_id ON {cohorts_table_name} (org_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_cohort_org_id ON {cohorts_table_name} (org_id)"""
     )
 
     # Create a table to store users in cohorts
@@ -135,11 +135,11 @@ async def create_cohort_tables(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_user_cohort_user_id ON {user_cohorts_table_name} (user_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_user_cohort_user_id ON {user_cohorts_table_name} (user_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_user_cohort_cohort_id ON {user_cohorts_table_name} (cohort_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_user_cohort_cohort_id ON {user_cohorts_table_name} (cohort_id)"""
     )
 
 
@@ -160,15 +160,15 @@ async def create_course_tasks_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_course_task_task_id ON {course_tasks_table_name} (task_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_course_task_task_id ON {course_tasks_table_name} (task_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_course_task_course_id ON {course_tasks_table_name} (course_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_course_task_course_id ON {course_tasks_table_name} (course_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_course_task_milestone_id ON {course_tasks_table_name} (milestone_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_course_task_milestone_id ON {course_tasks_table_name} (milestone_id)"""
     )
 
 
@@ -187,11 +187,11 @@ async def create_course_milestones_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_course_milestone_course_id ON {course_milestones_table_name} (course_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_course_milestone_course_id ON {course_milestones_table_name} (course_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_course_milestone_milestone_id ON {course_milestones_table_name} (milestone_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_course_milestone_milestone_id ON {course_milestones_table_name} (milestone_id)"""
     )
 
 
@@ -207,7 +207,7 @@ async def create_milestones_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_milestone_org_id ON {milestones_table_name} (org_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_milestone_org_id ON {milestones_table_name} (org_id)"""
     )
 
 
@@ -223,7 +223,7 @@ async def create_courses_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_course_org_id ON {courses_table_name} (org_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_course_org_id ON {courses_table_name} (org_id)"""
     )
 
 
@@ -245,11 +245,11 @@ async def create_course_cohorts_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_course_cohort_course_id ON {course_cohorts_table_name} (course_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_course_cohort_course_id ON {course_cohorts_table_name} (course_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_course_cohort_cohort_id ON {course_cohorts_table_name} (cohort_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_course_cohort_cohort_id ON {course_cohorts_table_name} (cohort_id)"""
     )
 
 
@@ -270,7 +270,7 @@ async def create_tasks_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_task_org_id ON {tasks_table_name} (org_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_task_org_id ON {tasks_table_name} (org_id)"""
     )
 
 
@@ -298,7 +298,7 @@ async def create_questions_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_question_task_id ON {questions_table_name} (task_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_question_task_id ON {questions_table_name} (task_id)"""
     )
 
 
@@ -316,7 +316,7 @@ async def create_scorecards_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_scorecard_org_id ON {scorecards_table_name} (org_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_scorecard_org_id ON {scorecards_table_name} (org_id)"""
     )
 
 
@@ -334,11 +334,11 @@ async def create_question_scorecards_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_question_scorecard_question_id ON {question_scorecards_table_name} (question_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_question_scorecard_question_id ON {question_scorecards_table_name} (question_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_question_scorecard_scorecard_id ON {question_scorecards_table_name} (scorecard_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_question_scorecard_scorecard_id ON {question_scorecards_table_name} (scorecard_id)"""
     )
 
 
@@ -359,11 +359,11 @@ async def create_chat_history_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_chat_history_user_id ON {chat_history_table_name} (user_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_chat_history_user_id ON {chat_history_table_name} (user_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_chat_history_question_id ON {chat_history_table_name} (question_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_chat_history_question_id ON {chat_history_table_name} (question_id)"""
     )
 
 
@@ -384,15 +384,15 @@ async def create_task_completion_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_task_completion_user_id ON {task_completions_table_name} (user_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_task_completion_user_id ON {task_completions_table_name} (user_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_task_completion_task_id ON {task_completions_table_name} (task_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_task_completion_task_id ON {task_completions_table_name} (task_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_task_completion_question_id ON {task_completions_table_name} (question_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_task_completion_question_id ON {task_completions_table_name} (question_id)"""
     )
 
 
@@ -410,7 +410,7 @@ async def create_course_generation_jobs_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_course_generation_job_course_id ON {course_generation_jobs_table_name} (course_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_course_generation_job_course_id ON {course_generation_jobs_table_name} (course_id)"""
     )
 
 
@@ -430,11 +430,11 @@ async def create_task_generation_jobs_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_task_generation_job_task_id ON {task_generation_jobs_table_name} (task_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_task_generation_job_task_id ON {task_generation_jobs_table_name} (task_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_task_generation_job_course_id ON {task_generation_jobs_table_name} (course_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_task_generation_job_course_id ON {task_generation_jobs_table_name} (course_id)"""
     )
 
 
@@ -468,66 +468,42 @@ async def init_db():
     if not os.path.exists(db_folder):
         os.makedirs(db_folder)
 
-    if not exists(sqlite_db_path):
+    db_just_created = not exists(sqlite_db_path)
+    if db_just_created:
         # only set the defaults the first time
         set_db_defaults()
 
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        if exists(sqlite_db_path):
-            if not await check_table_exists(code_drafts_table_name, cursor):
-                await create_code_drafts_table(cursor)
-
-            await conn.commit()
-            return
-
         try:
             await create_organizations_table(cursor)
-
             await create_org_api_keys_table(cursor)
-
             await create_users_table(cursor)
-
             await create_user_organizations_table(cursor)
-
             await create_milestones_table(cursor)
-
             await create_cohort_tables(cursor)
-
             await create_courses_table(cursor)
-
             await create_course_cohorts_table(cursor)
-
             await create_tasks_table(cursor)
-
             await create_questions_table(cursor)
-
             await create_scorecards_table(cursor)
-
             await create_question_scorecards_table(cursor)
-
             await create_chat_history_table(cursor)
-
             await create_task_completion_table(cursor)
-
             await create_course_tasks_table(cursor)
-
             await create_course_milestones_table(cursor)
-
             await create_course_generation_jobs_table(cursor)
-
             await create_task_generation_jobs_table(cursor)
-
             await create_code_drafts_table(cursor)
 
             await conn.commit()
 
         except Exception as exception:
-            # delete db
-            os.remove(sqlite_db_path)
+            # delete db if it was just created to avoid a partial state
+            if db_just_created and exists(sqlite_db_path):
+                os.remove(sqlite_db_path)
             raise exception
-
 
 async def delete_useless_tables():
     from api.config import (
