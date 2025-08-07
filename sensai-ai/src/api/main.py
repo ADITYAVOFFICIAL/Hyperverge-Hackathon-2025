@@ -89,10 +89,14 @@ if settings.bugsnag_api_key:
         return response
 
 
-# Add CORS middleware to allow cross-origin requests (for frontend to access backend)
+origins = [
+    "http://localhost",
+    "http://localhost:3000",  # Your frontend origin
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with your frontend URL in production
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

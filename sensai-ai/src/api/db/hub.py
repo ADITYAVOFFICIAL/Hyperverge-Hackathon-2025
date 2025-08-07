@@ -97,58 +97,43 @@ async def get_posts_by_hub(hub_id: int) -> List[Dict]:
     ]
 
 async def get_post_with_details(post_id: int) -> Optional[Dict]:
-    """
-    Retrieves a single post with its details and all its comments.
-
-    Args:
-        post_id: The ID of the post to retrieve.
-
-    Returns:
-        A dictionary representing the post and its comments, or None if not found.
-    """
     post_query = f"""
-        SELECT p.id, p.title, p.content, p.post_type, p.created_at, u.email,
-               (SELECT COUNT(*) FROM {post_votes_table_name} WHERE post_id = p.id AND vote_type = 'helpful') as votes
+        SELECT p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email as author,
+               (SELECT COUNT(*) FROM {post_votes_table_name} WHERE post_id = p.id) as votes
         FROM {posts_table_name} p
         JOIN {users_table_name} u ON p.user_id = u.id
         WHERE p.id = ?
     """
-    post_row = await execute_db_operation(post_query, (post_id,), fetch_one=True)
-    if not post_row:
+    post_rows = await execute_db_operation(post_query, (post_id,), fetch_all=True)
+    if not post_rows:
         return None
+    post_row = post_rows[0]
 
     comments_query = f"""
-        SELECT p.id, p.content, p.created_at, u.email,
-               (SELECT COUNT(*) FROM {post_votes_table_name} WHERE post_id = p.id AND vote_type = 'helpful') as votes
+        SELECT p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email as author,
+               (SELECT COUNT(*) FROM {post_votes_table_name} WHERE post_id = p.id) as votes
         FROM {posts_table_name} p
         JOIN {users_table_name} u ON p.user_id = u.id
         WHERE p.parent_id = ?
         ORDER BY p.created_at ASC
     """
-    comment_rows = await execute_db_operation(comments_query, (post_id,), fetch_all=True)
+    comments_rows = await execute_db_operation(comments_query, (post_id,), fetch_all=True)
 
-    post = {
-        "id": post_row[0], "title": post_row[1], "content": post_row[2], "post_type": post_row[3],
-        "created_at": post_row[4], "author": post_row[5], "votes": post_row[6],
-        "comments": [
-            {
-                "id": row[0], "content": row[1], "created_at": row[2], "author": row[3], "votes": row[4]
-            } for row in comment_rows
-        ]
+    post_details = {
+        "id": post_row[0], "hub_id": post_row[1], "title": post_row[2], "content": post_row[3],
+        "post_type": post_row[4], "created_at": post_row[5], "author": post_row[6], "votes": post_row[7]
     }
-    return post
+    post_details["comments"] = [
+        {
+            "id": comment[0], "hub_id": comment[1], "title": comment[2], "content": comment[3],
+            "post_type": comment[4], "created_at": comment[5], "author": comment[6], "votes": comment[7]
+        } for comment in comments_rows
+    ]
+    return post_details
 
 async def add_vote_to_post(post_id: int, user_id: int, vote_type: str):
-    """
-    Adds a vote to a post. If a vote from the user already exists, it does nothing.
-
-    Args:
-        post_id: The ID of the post to vote on.
-        user_id: The ID of the user casting the vote.
-        vote_type: The type of vote (e.g., 'helpful').
-    """
     await execute_db_operation(
-        f"INSERT OR IGNORE INTO {post_votes_table_name} (post_id, user_id, vote_type) VALUES (?, ?, ?)",
+        f"INSERT INTO {post_votes_table_name} (post_id, user_id, vote_type) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
         (post_id, user_id, vote_type)
     )
 

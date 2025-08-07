@@ -729,6 +729,7 @@ class PostVoteRequest(BaseModel):
 
 class Post(BaseModel):
     id: int
+    hub_id: int
     title: Optional[str] = None
     content: str
     post_type: str

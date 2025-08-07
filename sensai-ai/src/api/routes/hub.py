@@ -32,13 +32,21 @@ async def get_hubs_for_organization(org_id: int) -> List[Hub]:
     Retrieves all learning hubs for a specific organization.
     """
     return await hub_db.get_hubs_by_org(org_id)
-
 @router.get("/{hub_id}/posts", response_model=List[Post])
 async def get_posts_for_hub(hub_id: int) -> List[Post]:
     """
     Retrieves all top-level posts (threads, questions, notes) for a specific hub.
     """
-    return await hub_db.get_posts_by_hub(hub_id)
+    try:
+        posts = await hub_db.get_posts_by_hub(hub_id)
+        # Manually add hub_id to each post dictionary if it's missing.
+        for post in posts:
+            if 'hub_id' not in post:
+                post['hub_id'] = hub_id
+        return posts
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error fetching posts for hub {hub_id}: {e}")
 
 @router.post("/posts", response_model=Dict[str, int])
 async def create_post(request: CreatePostRequest) -> Dict[str, int]:
@@ -50,7 +58,7 @@ async def create_post(request: CreatePostRequest) -> Dict[str, int]:
         request.user_id,
         request.title,
         request.content,
-        request.post_type,
+        str(request.post_type),
         request.parent_id
     )
     return {"id": post_id}
@@ -60,10 +68,12 @@ async def get_post(post_id: int) -> PostWithComments:
     """
     Retrieves a single post along with its details and all associated comments.
     """
-    post = await hub_db.get_post_with_details(post_id)
-    if not post:
+    post_details = await hub_db.get_post_with_details(post_id)
+    if not post_details:
         raise HTTPException(status_code=404, detail="Post not found")
-    return post
+
+    return post_details
+
 
 @router.post("/posts/{post_id}/vote", response_model=Dict[str, bool])
 async def vote_on_post(post_id: int, request: PostVoteRequest) -> Dict[str, bool]:

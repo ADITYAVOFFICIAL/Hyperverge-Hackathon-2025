@@ -16,6 +16,7 @@ export default function PostView({ postId }: PostViewProps) {
     const [error, setError] = useState<string | null>(null);
     const [newComment, setNewComment] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [commentError, setCommentError] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchPost = async () => {
@@ -26,7 +27,7 @@ export default function PostView({ postId }: PostViewProps) {
                 if (!response.ok) throw new Error('Failed to fetch post.');
                 const data = await response.json();
                 setPost(data);
-            } catch (err) {
+            } catch {
                 setError('Could not load the post. It may have been deleted or the link is incorrect.');
             } finally {
                 setLoading(false);
@@ -38,6 +39,7 @@ export default function PostView({ postId }: PostViewProps) {
     const handleAddComment = async () => {
         if (!newComment.trim() || !user || !post) return;
         setIsSubmitting(true);
+        setCommentError(null);
         try {
             const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts`, {
                 method: 'POST',
@@ -67,6 +69,7 @@ export default function PostView({ postId }: PostViewProps) {
 
         } catch (err) {
             console.error("Failed to add comment:", err);
+            setCommentError('An error occurred. Please try again.');
         } finally {
             setIsSubmitting(false);
         }
@@ -137,7 +140,8 @@ export default function PostView({ postId }: PostViewProps) {
                         className="w-full h-24 p-3 bg-[#0D0D0D] text-white rounded-lg font-light resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
                         disabled={isSubmitting}
                     />
-                    <div className="flex justify-end mt-4">
+                    <div className="flex justify-end items-center mt-4">
+                        {commentError && <p className="text-red-500 text-sm mr-4">{commentError}</p>}
                         <button onClick={handleAddComment} className="px-6 py-2 bg-white text-black text-sm font-medium rounded-full hover:opacity-90 transition-opacity" disabled={isSubmitting || !newComment.trim()}>
                             {isSubmitting ? 'Posting...' : 'Post Comment'}
                         </button>

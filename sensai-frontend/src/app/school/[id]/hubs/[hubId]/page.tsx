@@ -18,6 +18,7 @@ interface Hub {
 
 interface Post {
     id: number;
+    hub_id: number;
     title: string;
     content: string;
     post_type: string;
@@ -55,7 +56,7 @@ const CreatePostDialog = ({ open, onClose, hubId, schoolId, onPostCreated }: { o
                     user_id: user?.id,
                     title,
                     content,
-                    post_type
+                    post_type: postType,
                 })
             });
             if (!response.ok) throw new Error('Failed to create post.');
@@ -143,28 +144,29 @@ export default function HubPage() {
     const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
     useEffect(() => {
-        const fetchData = async () => {
-            try {
-                // In a real app, you might fetch hub details separately
-                // For now, we'll just fetch posts
-                const postsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/${hubId}/posts`);
-                if (!postsResponse.ok) throw new Error('Failed to fetch posts.');
-                const postsData = await postsResponse.json();
-                setPosts(postsData);
-
-                // You would also fetch hub details here
-                // const hubResponse = await fetch(...)
-                // const hubData = await hubResponse.json();
-                // setHub(hubData);
-
-            } catch (err) {
-                setError('Could not load hub content. Please try again later.');
-            } finally {
-                setLoading(false);
+    const fetchData = async () => {
+        try {
+            // Add more detailed error handling
+            const postsResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/${hubId}/posts`);
+            
+            if (!postsResponse.ok) {
+                const errorText = await postsResponse.text();
+                console.error('Posts fetch failed:', postsResponse.status, errorText);
+                throw new Error(`Failed to fetch posts: ${postsResponse.status}`);
             }
-        };
-        fetchData();
-    }, [hubId]);
+            
+            const postsData = await postsResponse.json();
+            setPosts(postsData);
+        } catch (err) {
+            console.error('Error fetching hub data:', err);
+            setError('Could not load hub content. Please try again later.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    fetchData();
+}, [hubId]);
     
     const handlePostCreated = (newPost: Post) => {
         setPosts(prevPosts => [newPost, ...prevPosts]);

@@ -49,6 +49,7 @@ export interface Hub {
 
 export interface Post {
   id: number;
+  hub_id: number;
   title: string;
   content: string;
   post_type: string;
