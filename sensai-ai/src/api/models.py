@@ -747,3 +747,15 @@ class Post(BaseModel):
 
 class PostWithComments(Post):
     comments: List[Post]
+
+class ModerationResult(BaseModel):
+    is_flagged: bool
+    severity: Literal["low", "medium", "high"]
+    reason: Optional[str] = None
+    action: Literal["approve", "flag", "remove"]
+    confidence: float
+
+class ModerationRequest(BaseModel):
+    content: str
+    post_id: int
+    user_id: int

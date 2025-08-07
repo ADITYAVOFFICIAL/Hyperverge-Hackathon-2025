@@ -15,7 +15,6 @@ if os.path.exists(env_path):
 class Settings(BaseSettings):
     google_client_id: str
     openai_api_key: str
-    s3_bucket_name: str | None = None  # only relevant when running the code remotely
     s3_folder_name: str | None = None  # only relevant when running the code remotely
     local_upload_folder: str = (
         UPLOAD_FOLDER_NAME  # hardcoded variable for local file storage

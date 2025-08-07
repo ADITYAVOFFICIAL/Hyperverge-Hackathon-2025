@@ -36,6 +36,7 @@ hubs_table_name = "hubs"
 posts_table_name = "posts"
 post_votes_table_name = "post_votes"
 post_links_table_name = "post_links"
+poll_options_table_name = "poll_options"
 
 
 async def create_hubs_table(cursor):
@@ -67,6 +68,7 @@ async def create_posts_table(cursor):
                 content TEXT NOT NULL,
                 post_type TEXT NOT NULL,
                 poll_options TEXT,
+                moderation_status TEXT DEFAULT 'pending' CHECK(moderation_status IN ('pending', 'approved', 'flagged', 'removed')),
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (hub_id) REFERENCES {hubs_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
@@ -81,6 +83,9 @@ async def create_posts_table(cursor):
     )
     await cursor.execute(
         f"""CREATE INDEX IF NOT EXISTS idx_posts_parent_id ON {posts_table_name} (parent_id)"""
+    )
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_posts_moderation_status ON {posts_table_name} (moderation_status)"""
     )
 
 
@@ -546,27 +551,65 @@ async def create_code_drafts_table(cursor):
     )
 
 
+async def create_poll_options_table(cursor):
+    """Creates the poll_options table to store individual poll options."""
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {poll_options_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id INTEGER NOT NULL,
+                option_text TEXT NOT NULL,
+                votes INTEGER DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (post_id) REFERENCES {posts_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_poll_options_post_id ON {poll_options_table_name} (post_id)"""
+    )
+
+
+async def migrate_posts_table_add_moderation_status(cursor):
+    """Add moderation_status column to existing posts table if it doesn't exist."""
+    try:
+        # Check if column exists
+        await cursor.execute(f"PRAGMA table_info({posts_table_name})")
+        columns = await cursor.fetchall()
+        column_names = [column[1] for column in columns]
+        
+        if 'moderation_status' not in column_names:
+            # First, add the column without the CHECK constraint
+            await cursor.execute(
+                f"ALTER TABLE {posts_table_name} ADD COLUMN moderation_status TEXT DEFAULT 'approved'"
+            )
+            print(f"Added moderation_status column to {posts_table_name}")
+            
+            # Create index for the new column
+            await cursor.execute(
+                f"""CREATE INDEX IF NOT EXISTS idx_posts_moderation_status ON {posts_table_name} (moderation_status)"""
+            )
+            print(f"Created index for moderation_status column")
+        else:
+            print(f"moderation_status column already exists in {posts_table_name}")
+    except Exception as e:
+        print(f"Migration error: {e}")
+
+
 async def init_db():
-    # Ensure the database folder exists
-    db_folder = os.path.dirname(sqlite_db_path)
-    if not os.path.exists(db_folder):
-        os.makedirs(db_folder)
-
     db_just_created = not exists(sqlite_db_path)
-    if db_just_created:
-        # only set the defaults the first time
-        set_db_defaults()
 
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
+    try:
+        async with get_new_db_connection() as conn:
+            cursor = await conn.cursor()
 
-        try:
+            # Set database defaults (this function creates its own connection)
+            set_db_defaults()
+
             await create_organizations_table(cursor)
             await create_org_api_keys_table(cursor)
             await create_users_table(cursor)
             await create_user_organizations_table(cursor)
-            await create_milestones_table(cursor)
             await create_cohort_tables(cursor)
+            await create_milestones_table(cursor)
             await create_courses_table(cursor)
             await create_course_cohorts_table(cursor)
             await create_tasks_table(cursor)
@@ -586,14 +629,20 @@ async def init_db():
             await create_posts_table(cursor)
             await create_post_votes_table(cursor)
             await create_post_links_table(cursor)
+            await create_poll_options_table(cursor)
+            await create_moderation_logs_table(cursor)
+
+            # Run migration for existing posts table
+            await migrate_posts_table_add_moderation_status(cursor)
 
             await conn.commit()
 
-        except Exception as exception:
-            # delete db if it was just created to avoid a partial state
-            if db_just_created and exists(sqlite_db_path):
-                os.remove(sqlite_db_path)
-            raise exception
+    except Exception as exception:
+        # delete db if it was just created to avoid a partial state
+        if db_just_created and exists(sqlite_db_path):
+            os.remove(sqlite_db_path)
+        raise exception
+
 
 async def delete_useless_tables():
     from api.config import (
@@ -672,3 +721,31 @@ async def delete_useless_tables():
                 )
 
         await conn.commit()
+
+
+async def create_moderation_logs_table(cursor):
+    """Creates the moderation_logs table for storing moderation results."""
+    await cursor.execute(
+        """CREATE TABLE IF NOT EXISTS moderation_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content_type TEXT NOT NULL,
+                content_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                is_flagged BOOLEAN NOT NULL,
+                severity TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                action TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )"""
+    )
+    
+    await cursor.execute(
+        """CREATE INDEX IF NOT EXISTS idx_moderation_logs_content ON moderation_logs (content_type, content_id)"""
+    )
+    
+    await cursor.execute(
+        """CREATE INDEX IF NOT EXISTS idx_moderation_logs_user ON moderation_logs (user_id)"""
+    )

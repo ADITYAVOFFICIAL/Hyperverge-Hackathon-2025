@@ -59,6 +59,7 @@ hubs_table_name = "hubs"
 posts_table_name = "posts"
 post_votes_table_name = "post_votes"
 post_links_table_name = "post_links"
+poll_options_table_name = "poll_options"
 
 UPLOAD_FOLDER_NAME = "uploads"
 

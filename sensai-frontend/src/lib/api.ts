@@ -57,6 +57,7 @@ export interface Post {
   author: string;
   votes: number;
   comment_count: number;
+  moderation_status?: 'pending' | 'approved' | 'flagged' | 'removed';
 }
 
 export interface Comment {
@@ -65,6 +66,7 @@ export interface Comment {
     created_at: string;
     author: string;
     votes: number;
+    moderation_status?: 'pending' | 'approved' | 'flagged' | 'removed';
 }
 
 export interface PostWithComments extends Post {

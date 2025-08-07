@@ -71,10 +71,12 @@ async def create_post(hub_id: int, user_id: int, title: Optional[str], content: 
         The ID of the newly created post.
     """
     poll_options_json = json.dumps(poll_options) if poll_options else None
+    
+    # Add moderation_status field with default 'pending'
     return await execute_db_operation(
         f"""INSERT INTO {posts_table_name}
-           (hub_id, user_id, title, content, post_type, parent_id, poll_options)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+           (hub_id, user_id, title, content, post_type, parent_id, poll_options, moderation_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')""",
         (hub_id, user_id, title, content, post_type, parent_id, poll_options_json),
         get_last_row_id=True
     )
@@ -187,4 +189,22 @@ async def add_link_to_post(post_id: int, item_type: str, item_id: int):
     await execute_db_operation(
         f"INSERT INTO {post_links_table_name} (post_id, item_type, item_id) VALUES (?, ?, ?)",
         (post_id, item_type, item_id)
+    )
+
+async def create_moderation_record(post_id: int, user_id: int, content: str, moderation_result: dict):
+    """Store moderation results in the database"""
+    await execute_db_operation(
+        f"""INSERT INTO moderation_logs 
+           (post_id, user_id, content, is_flagged, severity, reason, action, confidence, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+        (post_id, user_id, content, moderation_result['is_flagged'], 
+         moderation_result['severity'], moderation_result['reason'], 
+         moderation_result['action'], moderation_result['confidence'])
+    )
+
+async def update_post_moderation_status(post_id: int, status: str):
+    """Update the moderation status of a post"""
+    await execute_db_operation(
+        f"UPDATE {posts_table_name} SET moderation_status = ? WHERE id = ?",
+        (status, post_id)
     )

@@ -1,6 +1,6 @@
 # adityavofficial-hyperverge-hackathon-2025/sensai-ai/src/api/routes/hub.py
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from typing import List, Dict, Optional
 from api.db import hub as hub_db
 from api.models import (
@@ -11,7 +11,8 @@ from api.models import (
     Post,
     PostWithComments
 )
-# from api.utils.auth import get_current_user
+from ..services.moderation import moderate_content
+from ..db import hub as hub_db
 
 router = APIRouter()
 
@@ -49,38 +50,96 @@ async def get_posts_for_hub(hub_id: int) -> List[Post]:
         # Log the error for debugging
         print(f"Error fetching posts for hub {hub_id}: {e}")
 
-@router.post("/posts", response_model=Post, status_code=201)
-async def create_post(request: CreatePostRequest):
+@router.post("/posts", response_model=Post)
+async def create_post(request: CreatePostRequest, background_tasks: BackgroundTasks) -> Post:
     """
-    Creates a new post and returns the complete post object.
+    Creates a new post within a hub with AI moderation.
     """
-    try:
-        post_id = await hub_db.create_post(
-            hub_id=request.hub_id,
+    # Create the post first
+    post_id = await hub_db.create_post(
+        hub_id=request.hub_id,
+        user_id=request.user_id,
+        title=request.title,
+        content=request.content,
+        post_type=request.post_type,
+        parent_id=request.parent_id,
+        poll_options=request.poll_options
+    )
+    
+    # Add moderation task to background
+    if request.parent_id:  # This is a comment
+        background_tasks.add_task(
+            moderate_comment_content,
+            comment_id=post_id,
             user_id=request.user_id,
-            title=request.title,
-            content=request.content,
-            post_type=request.post_type,
-            parent_id=request.parent_id,
-            poll_options=request.poll_options
+            content=request.content
         )
+    else:  # This is a post
+        background_tasks.add_task(
+            moderate_post_content,
+            post_id=post_id,
+            user_id=request.user_id,
+            content=request.content
+        )
+    
+    # Return the post immediately (before moderation completes)
+    post = await hub_db.get_post_with_details(post_id)
+    if not post:
+        raise HTTPException(status_code=500, detail="Failed to retrieve created post")
+    
+    return post
 
-        # Try fetching with user_id first
-        new_post = await hub_db.get_post_with_details(post_id, user_id=request.user_id)
-        if not new_post:
-            # Fallback: try fetching without user_id
-            new_post = await hub_db.get_post_with_details(post_id)
-        if not new_post:
-            print(f"[ERROR] Created post {post_id} could not be retrieved (user_id={request.user_id})")
-            raise HTTPException(status_code=404, detail="Failed to retrieve created post.")
+async def moderate_post_content(post_id: int, user_id: int, content: str):
+    """Background task to moderate post content"""
+    try:
+        # Call the moderation service
+        moderation_result = await moderate_content(
+            content=content,
+            post_id=post_id,
+            user_id=user_id,
+            content_type="post"
+        )
         
-        return new_post
-
+        # Update post status based on moderation result
+        if moderation_result.action == "approve":
+            await hub_db.update_post_moderation_status(post_id, 'approved')
+        elif moderation_result.action == "flag":
+            await hub_db.update_post_moderation_status(post_id, 'flagged')
+        elif moderation_result.action == "remove":
+            await hub_db.update_post_moderation_status(post_id, 'removed')
+            
+        print(f"Post {post_id} moderation completed: {moderation_result.action}")
+        
     except Exception as e:
-        # Log the exception e
-        print(f"[ERROR] Exception in create_post: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error moderating post {post_id}: {e}")
+        # Default to approved if moderation fails
+        await hub_db.update_post_moderation_status(post_id, 'approved')
 
+async def moderate_comment_content(comment_id: int, user_id: int, content: str):
+    """Background task to moderate comment content"""
+    try:
+        # Call the moderation service for comments
+        moderation_result = await moderate_content(
+            content=content,
+            post_id=comment_id,  # Using comment_id as content_id
+            user_id=user_id,
+            content_type="comment"
+        )
+        
+        # Update comment status based on moderation result
+        if moderation_result.action == "approve":
+            await hub_db.update_post_moderation_status(comment_id, 'approved')
+        elif moderation_result.action == "flag":
+            await hub_db.update_post_moderation_status(comment_id, 'flagged')
+        elif moderation_result.action == "remove":
+            await hub_db.update_post_moderation_status(comment_id, 'removed')
+            
+        print(f"Comment {comment_id} moderation completed: {moderation_result.action}")
+        
+    except Exception as e:
+        print(f"Error moderating comment {comment_id}: {e}")
+        # Default to approved if moderation fails
+        await hub_db.update_post_moderation_status(comment_id, 'approved')
 
 @router.get("/posts/{post_id}", response_model=PostWithComments)
 async def get_post(post_id: int, userId: Optional[int] = None) -> PostWithComments:

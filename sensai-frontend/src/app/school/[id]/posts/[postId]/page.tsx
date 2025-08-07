@@ -39,6 +39,7 @@ interface Post extends Votable {
   comments: Comment[];
   poll_options?: PollOption[];
   user_poll_vote?: number | null; // ID of the option the user voted for
+  moderation_status?: 'pending' | 'approved' | 'flagged' | 'removed';
 }
 
 // --- Main Page Component ---
@@ -97,7 +98,7 @@ export default function PostPage() {
         body: JSON.stringify({
           hub_id: post.hub_id,
           user_id: parseInt(user.id),
-          content: newComment,
+          content: JSON.stringify(newComment), // Stringify the content array
           post_type: 'reply',
           parent_id: post.id
         })
@@ -336,10 +337,22 @@ export default function PostPage() {
               </div>
 
               <div className="text-gray-300 mt-6 prose prose-invert prose-sm max-w-none">
-                <BlockNoteEditor
-                  initialContent={post.content ? JSON.parse(post.content) : []}
-                  readOnly={true}
-                />
+                {post.moderation_status === 'removed' ? (
+                  <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 text-center">
+                    <p className="text-red-400">This post has been removed due to policy violations.</p>
+                  </div>
+                ) : post.moderation_status === 'flagged' ? (
+                  <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4 mb-4">
+                    <p className="text-yellow-400 text-sm">⚠️ This post is under review</p>
+                  </div>
+                ) : null}
+                
+                {post.moderation_status !== 'removed' && (
+                  <BlockNoteEditor
+                    initialContent={post.content ? JSON.parse(post.content) : []}
+                    readOnly={true}
+                  />
+                )}
               </div>
 
               {post.post_type === 'poll' && post.poll_options && (
@@ -403,33 +416,34 @@ export default function PostPage() {
                 <div className="space-y-6">
                   {post.comments.map((comment) => (
                     <div key={comment.id} className="border-t border-gray-800 pt-6 group relative">
-                      <div className="flex justify-between items-start">
-                        <div className="flex-grow mr-4">
-                          <div className="text-gray-300 mb-2 prose prose-invert prose-sm max-w-none">
-                            <BlockNoteEditor
-                              initialContent={comment.content ? JSON.parse(comment.content) : []}
-                              readOnly={true}
-                            />
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            <span>By {comment.author}</span>
-                            <span className="mx-2">•</span>
-                            <span>{new Date(comment.created_at).toLocaleDateString()}</span>
-                          </div>
+                      {comment.moderation_status === 'removed' ? (
+                        <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3 text-center">
+                          <p className="text-red-400 text-sm">This comment has been removed due to policy violations.</p>
                         </div>
-                        <div className="flex items-center gap-1 text-xs flex-shrink-0 ml-4">
-                          <button onClick={() => handleVote(comment.id, true, 'up')} className={`p-1 rounded-full hover:bg-gray-700 ${getVoteButtonClass(comment.user_vote, 'up')}`}>
-                            <ThumbsUp size={14} />
-                          </button>
-                          <span className="font-semibold text-gray-200">{comment.votes}</span>
-                          <button onClick={() => handleVote(comment.id, true, 'down')} className={`p-1 rounded-full hover:bg-gray-700 ${getVoteButtonClass(comment.user_vote, 'down')}`}>
-                            <ThumbsDown size={14} />
-                          </button>
-                        </div>
-                      </div>
-                      <button onClick={() => setItemToDelete({ id: comment.id, isComment: true })} className="absolute top-6 right-0 p-2 text-gray-500 hover:text-red-500 rounded-full bg-gray-800/50 opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Delete comment">
-                        <Trash2 size={14} />
-                      </button>
+                      ) : (
+                        <>
+                          {comment.moderation_status === 'flagged' && (
+                            <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-2 mb-2">
+                              <p className="text-yellow-400 text-xs">⚠️ Under review</p>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-start">
+                            <div className="flex-grow mr-4">
+                              <div className="text-gray-300 mb-2 prose prose-invert prose-sm max-w-none">
+                                <BlockNoteEditor
+                                  initialContent={comment.content ? JSON.parse(comment.content) : []}
+                                  readOnly={true}
+                                />
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                <span>By {comment.author}</span>
+                                <span className="mx-2">•</span>
+                                <span>{new Date(comment.created_at).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>

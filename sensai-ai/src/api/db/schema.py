@@ -60,3 +60,18 @@ post_votes = sqlalchemy.Table(
     sqlalchemy.Column("is_comment", sqlalchemy.Boolean, default=False, nullable=False),
     sqlalchemy.UniqueConstraint("post_id", "user_id", "is_comment", name="uq_user_vote"),
 )
+
+moderation_logs = sqlalchemy.Table(
+    "moderation_logs",
+    metadata,
+    sqlalchemy.Column("id", sqlalchemy.Integer, primary_key=True),
+    sqlalchemy.Column("post_id", sqlalchemy.Integer, sqlalchemy.ForeignKey("posts.id"), nullable=False),
+    sqlalchemy.Column("user_id", sqlalchemy.Integer, sqlalchemy.ForeignKey("users.id"), nullable=False),
+    sqlalchemy.Column("content", sqlalchemy.Text, nullable=False),
+    sqlalchemy.Column("is_flagged", sqlalchemy.Boolean, nullable=False),
+    sqlalchemy.Column("severity", sqlalchemy.String(20), nullable=False),
+    sqlalchemy.Column("reason", sqlalchemy.Text, nullable=True),
+    sqlalchemy.Column("action", sqlalchemy.String(20), nullable=False),
+    sqlalchemy.Column("confidence", sqlalchemy.Float, nullable=False),
+    sqlalchemy.Column("created_at", sqlalchemy.DateTime, server_default=sqlalchemy.func.now()),
+)

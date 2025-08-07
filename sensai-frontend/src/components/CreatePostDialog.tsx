@@ -63,7 +63,7 @@ export default function CreatePostDialog({
   };
 
   const addPollOption = () => {
-    if (pollOptions.length < 5) {
+    if (pollOptions.length < 10) {
       setPollOptions([...pollOptions, '']);
     }
   };
@@ -200,7 +200,7 @@ export default function CreatePostDialog({
                     )}
                   </div>
                 ))}
-                {pollOptions.length < 5 && (
+                {pollOptions.length < 10 && (
                   <button onClick={addPollOption} className="flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300 pt-1">
                     <Plus size={14} />
                     Add Option
