@@ -13,11 +13,9 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   output: 'standalone',
-  experimental: {
-    turbo: {
-      resolveAlias: {
-        canvas: './empty-module.ts',
-      },
+  turbopack: {
+    resolveAlias: {
+      canvas: './empty-module.ts',
     },
   },
 };
