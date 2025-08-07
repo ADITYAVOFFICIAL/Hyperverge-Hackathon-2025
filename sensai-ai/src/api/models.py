@@ -724,8 +724,9 @@ class CreatePostRequest(BaseModel):
     user_id: int
     title: Optional[str] = None
     content: str
-    post_type: Literal["thread", "question", "note", "reply"]
+    post_type: str
     parent_id: Optional[int] = None
+    poll_options: Optional[List[str]] = None
 
 
 class PostVoteRequest(BaseModel):

@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { ArrowLeft, ThumbsUp, ThumbsDown, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import BlockNoteEditor from "@/components/BlockNoteEditor";
+import { Block } from "@blocknote/core";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
-
-// --- Best Practice: Define precise types for API data ---
 
 // A reusable interface for items that can be voted on.
 // `user_vote` tracks the logged-in user's vote status on the post and comments.
@@ -18,7 +18,7 @@ interface Votable {
 }
 
 interface Comment extends Votable {
-  content: string;
+  content: string; // Will be stringified JSON
   created_at: string;
   author: string;
 }
@@ -26,7 +26,7 @@ interface Comment extends Votable {
 interface Post extends Votable {
   hub_id: number;
   title: string;
-  content: string;
+  content: string; // Will be stringified JSON
   post_type: string;
   created_at: string;
   author:string;
@@ -43,15 +43,13 @@ export default function PostPage() {
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [newComment, setNewComment] = useState("");
+  
+  const [newComment, setNewComment] = useState<Block[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
   const [itemToDelete, setItemToDelete] = useState<{ id: number; isComment: boolean } | null>(null);
 
-  /**
-   * Fetches the post data from the server.
-   * Includes the user's ID to get their specific vote status on the post and comments.
-   */
-  const fetchPost = async () => {
+  const fetchPost = useCallback(async () => {
     if (!postId) return;
 
     // The API should accept a `userId` to return the `user_vote` field correctly.
@@ -72,18 +70,63 @@ export default function PostPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [postId, user]);
 
   useEffect(() => {
-    fetchPost();
-  }, [postId, user]); // Re-fetch if the post ID changes or the user logs in/out.
+    if (postId) {
+      fetchPost();
+    }
+  }, [postId, fetchPost]);
 
-  /**
-   * Handles all voting logic with optimistic updates and error rollback.
-   * @param itemId The ID of the post or comment being voted on.
-   * @param isComment A boolean to distinguish between post and comment votes.
-   * @param newVote The vote being cast: 'up' or 'down'.
-   */
+  const handleAddComment = async () => {
+    if (newComment.length === 0 || !user || !post) return;
+    setIsSubmitting(true);
+    setCommentError(null);
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hub_id: post.hub_id,
+          user_id: parseInt(user.id),
+          content: newComment,
+          post_type: 'reply',
+          parent_id: post.id
+        })
+      });
+      if (!response.ok) throw new Error('Failed to add comment.');
+      
+      // Refetch post to get the full new comment object with author etc.
+      fetchPost(); 
+      setNewComment([]);
+
+    } catch (err) {
+      console.error("Failed to add comment:", err);
+      setCommentError("Failed to post comment. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!itemToDelete) return;
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts/${itemToDelete.id}`, {
+        method: 'DELETE',
+      });
+      if (itemToDelete.isComment) {
+        setPost(prev => prev ? { ...prev, comments: prev.comments.filter(c => c.id !== itemToDelete.id) } : null);
+      } else {
+        router.back();
+      }
+    } catch (err) {
+      console.error("Failed to delete item:", err);
+      alert("Failed to delete. Please try again.");
+    } finally {
+      setItemToDelete(null);
+    }
+  };
+
   const handleVote = async (itemId: number, isComment: boolean, newVote: "up" | "down") => {
     if (!user) {
       alert("Please log in to vote.");
@@ -171,55 +214,6 @@ export default function PostPage() {
     }
   };
 
-  const handleAddComment = async () => {
-    if (!newComment.trim() || !user || !post) return;
-    setIsSubmitting(true);
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          hub_id: post.hub_id,
-          user_id: parseInt(user.id),
-          content: newComment,
-          post_type: "reply",
-          parent_id: post.id,
-        }),
-      });
-      if (!response.ok) throw new Error("Failed to add comment.");
-      
-      // Re-fetch post to get the definitive new comment list from the server
-      await fetchPost();
-      setNewComment("");
-
-    } catch (err) {
-      console.error("handleAddComment error:", err);
-      alert("Failed to post your comment. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!itemToDelete) return;
-    try {
-      await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts/${itemToDelete.id}`, {
-        method: 'DELETE',
-      });
-      if (itemToDelete.isComment) {
-        setPost(prev => prev ? { ...prev, comments: prev.comments.filter(c => c.id !== itemToDelete.id) } : null);
-      } else {
-        router.back();
-      }
-    } catch (err) {
-      console.error("Failed to delete item:", err);
-      alert("Failed to delete. Please try again.");
-    } finally {
-      setItemToDelete(null);
-    }
-  };
-
-  // Helper to apply dynamic styling to vote buttons based on the user's vote.
   const getVoteButtonClass = (userVote: "up" | "down" | null, type: "up" | "down") => {
     if (userVote === type) {
       return type === 'up' ? 'text-green-500' : 'text-red-500';
@@ -247,45 +241,73 @@ export default function PostPage() {
       <Header />
       <div className="min-h-screen bg-black text-white">
         <main className="max-w-4xl mx-auto pt-6 px-8 pb-12">
-          <button onClick={() => router.back()} className="flex items-center text-gray-400 hover:text-white transition-colors mb-6">
-            <ArrowLeft size={16} className="mr-2" />
-            Back to Hub
-          </button>
-
-          {error && <p className="text-center text-red-500 py-20">{error}</p>}
-
-          {!loading && post && (
-            <div>
-              <div className="bg-[#1A1A1A] p-8 rounded-lg relative group">
-                <h1 className="text-3xl font-light text-white mb-4">{post.title}</h1>
-                <div className="flex items-center text-sm text-gray-500 mb-6">
+          {loading ? (
+            <div className="flex justify-center items-center py-20">
+              <div className="w-12 h-12 border-t-2 border-b-2 border-white rounded-full animate-spin"></div>
+            </div>
+          ) : error || !post ? (
+            <div className="text-center py-20">
+              {error ? (
+                <p className="text-red-500">{error}</p>
+              ) : (
+                <p className="text-gray-500">Post not found.</p>
+              )}
+              <button onClick={() => router.back()} className="mt-4 text-sm text-blue-500 hover:underline">
+                Go back
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="mb-8">
+                <button onClick={() => router.back()} className="flex items-center text-gray-400 hover:text-white transition-colors mb-4">
+                  <ArrowLeft size={16} className="mr-2" />
+                  Back to Hub
+                </button>
+                <h1 className="text-3xl font-light text-white">{post.title}</h1>
+                <div className="text-sm text-gray-500 mt-2">
                   <span>By {post.author}</span>
                   <span className="mx-2">•</span>
                   <span>{new Date(post.created_at).toLocaleDateString()}</span>
                 </div>
-                <p className="text-gray-300 leading-relaxed mb-6 whitespace-pre-wrap">{post.content}</p>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 transition-colors">
-                    <button onClick={() => handleVote(post.id, false, 'up')} className={`p-1 rounded-full hover:bg-gray-700 ${getVoteButtonClass(post.user_vote, 'up')}`}>
-                      <ThumbsUp size={16} />
-                    </button>
-                    <span className="font-semibold text-lg text-white">{post.votes}</span>
-                    <button onClick={() => handleVote(post.id, false, 'down')} className={`p-1 rounded-full hover:bg-gray-700 ${getVoteButtonClass(post.user_vote, 'down')}`}>
-                      <ThumbsDown size={16} />
-                    </button>
-                  </div>
-                </div>
-                <button onClick={() => setItemToDelete({ id: post.id, isComment: false })} className="absolute top-4 right-4 p-2 text-gray-500 hover:text-red-500 rounded-full bg-gray-800/50 opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Delete post">
+              </div>
+
+              <div className="text-gray-300 mt-6 prose prose-invert prose-sm max-w-none">
+                <BlockNoteEditor
+                  initialContent={post.content ? JSON.parse(post.content) : []}
+                  readOnly={true}
+                />
+              </div>
+
+              <div className="relative group flex items-center gap-2 text-gray-400 mt-6 border-t border-b border-gray-800 py-2">
+                <button onClick={() => handleVote(post.id, false, 'up')} className={`p-1 rounded-full hover:bg-gray-700 ${getVoteButtonClass(post.user_vote, 'up')}`}>
+                  <ThumbsUp size={16} />
+                </button>
+                <span className="font-semibold text-lg text-white">{post.votes}</span>
+                <button onClick={() => handleVote(post.id, false, 'down')} className={`p-1 rounded-full hover:bg-gray-700 ${getVoteButtonClass(post.user_vote, 'down')}`}>
+                  <ThumbsDown size={16} />
+                </button>
+                <button onClick={() => setItemToDelete({ id: post.id, isComment: false })} className="absolute top-1/2 -translate-y-1/2 right-0 p-2 text-gray-500 hover:text-red-500 rounded-full bg-gray-800/50 opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Delete post">
                   <Trash2 size={16} />
                 </button>
               </div>
 
               <div className="mt-10">
                 <h2 className="text-2xl font-light mb-6">Comments ({post.comments.length})</h2>
+                
                 <div className="bg-[#1A1A1A] p-4 rounded-lg mb-8">
-                  <textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Add your comment..." className="w-full h-24 p-3 bg-[#0D0D0D] text-white rounded-lg font-light resize-none focus:ring-2 focus:ring-white/50 outline-none" disabled={isSubmitting || !user} />
-                  <div className="flex justify-end mt-4">
-                    <button onClick={handleAddComment} className="px-6 py-2 bg-white text-black text-sm font-medium rounded-full disabled:bg-gray-500 disabled:cursor-not-allowed" disabled={isSubmitting || !newComment.trim() || !user}>
+                  <div className="min-h-[100px] bg-[#0D0D0D] rounded-lg focus-within:ring-2 focus-within:ring-purple-500 p-1">
+                    <BlockNoteEditor
+                      initialContent={[]}
+                      onChange={(blocks) => {
+                        setNewComment(blocks);
+                      }}
+                      placeholder="Add your comment..."
+                      className="font-light"
+                    />
+                  </div>
+                  <div className="flex justify-end items-center mt-4">
+                    {commentError && <p className="text-red-500 text-sm mr-4">{commentError}</p>}
+                    <button onClick={handleAddComment} className="px-6 py-2 bg-white text-black text-sm font-medium rounded-full disabled:bg-gray-500 disabled:cursor-not-allowed" disabled={isSubmitting || newComment.length === 0}>
                       {isSubmitting ? "Posting..." : "Post Comment"}
                     </button>
                   </div>
@@ -295,8 +317,13 @@ export default function PostPage() {
                   {post.comments.map((comment) => (
                     <div key={comment.id} className="border-t border-gray-800 pt-6 group relative">
                       <div className="flex justify-between items-start">
-                        <div>
-                          <p className="text-gray-300 mb-2">{comment.content}</p>
+                        <div className="flex-grow mr-4">
+                          <div className="text-gray-300 mb-2 prose prose-invert prose-sm max-w-none">
+                            <BlockNoteEditor
+                              initialContent={comment.content ? JSON.parse(comment.content) : []}
+                              readOnly={true}
+                            />
+                          </div>
                           <div className="text-xs text-gray-500">
                             <span>By {comment.author}</span>
                             <span className="mx-2">•</span>
@@ -313,14 +340,14 @@ export default function PostPage() {
                           </button>
                         </div>
                       </div>
-                      <button onClick={() => setItemToDelete({ id: comment.id, isComment: true })} className="absolute top-6 right-[100px] p-2 text-gray-500 hover:text-red-500 rounded-full bg-gray-800/50 opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Delete comment">
+                      <button onClick={() => setItemToDelete({ id: comment.id, isComment: true })} className="absolute top-6 right-0 p-2 text-gray-500 hover:text-red-500 rounded-full bg-gray-800/50 opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Delete comment">
                         <Trash2 size={14} />
                       </button>
                     </div>
                   ))}
                 </div>
               </div>
-            </div>
+            </>
           )}
         </main>
       </div>

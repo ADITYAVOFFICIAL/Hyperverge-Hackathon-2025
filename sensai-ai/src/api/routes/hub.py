@@ -1,7 +1,7 @@
 # adityavofficial-hyperverge-hackathon-2025/sensai-ai/src/api/routes/hub.py
 
-from fastapi import APIRouter, HTTPException
-from typing import List, Dict
+from fastapi import APIRouter, Depends, HTTPException
+from typing import List, Dict, Optional
 from api.db import hub as hub_db
 from api.models import (
     CreateHubRequest,
@@ -11,6 +11,7 @@ from api.models import (
     Post,
     PostWithComments
 )
+# from api.utils.auth import get_current_user
 
 router = APIRouter()
 
@@ -48,23 +49,41 @@ async def get_posts_for_hub(hub_id: int) -> List[Post]:
         # Log the error for debugging
         print(f"Error fetching posts for hub {hub_id}: {e}")
 
-@router.post("/posts", response_model=Dict[str, int])
-async def create_post(request: CreatePostRequest) -> Dict[str, int]:
+@router.post("/posts", response_model=Post, status_code=201)
+async def create_post(request: CreatePostRequest):
     """
-    Creates a new post or a reply within a hub.
+    Creates a new post and returns the complete post object.
     """
-    post_id = await hub_db.create_post(
-        request.hub_id,
-        request.user_id,
-        request.title,
-        request.content,
-        str(request.post_type),
-        request.parent_id
-    )
-    return {"id": post_id}
+    try:
+        post_id = await hub_db.create_post(
+            hub_id=request.hub_id,
+            user_id=request.user_id,
+            title=request.title,
+            content=request.content,
+            post_type=request.post_type,
+            parent_id=request.parent_id,
+            poll_options=request.poll_options
+        )
+
+        # Try fetching with user_id first
+        new_post = await hub_db.get_post_with_details(post_id, user_id=request.user_id)
+        if not new_post:
+            # Fallback: try fetching without user_id
+            new_post = await hub_db.get_post_with_details(post_id)
+        if not new_post:
+            print(f"[ERROR] Created post {post_id} could not be retrieved (user_id={request.user_id})")
+            raise HTTPException(status_code=404, detail="Failed to retrieve created post.")
+        
+        return new_post
+
+    except Exception as e:
+        # Log the exception e
+        print(f"[ERROR] Exception in create_post: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/posts/{post_id}", response_model=PostWithComments)
-async def get_post(post_id: int) -> PostWithComments:
+async def get_post(post_id: int, userId: Optional[int] = None) -> PostWithComments:
     """
     Retrieves a single post along with its details and all associated comments.
     """

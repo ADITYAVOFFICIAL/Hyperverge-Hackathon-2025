@@ -66,6 +66,7 @@ async def create_posts_table(cursor):
                 title TEXT,
                 content TEXT NOT NULL,
                 post_type TEXT NOT NULL,
+                poll_options TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (hub_id) REFERENCES {hubs_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,

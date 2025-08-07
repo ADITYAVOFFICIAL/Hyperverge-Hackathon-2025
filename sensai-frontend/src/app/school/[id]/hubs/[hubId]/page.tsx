@@ -8,6 +8,7 @@ import { Header } from "@/components/layout/header";
 import { Plus, MessageSquare, ArrowLeft, ThumbsUp, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
+import CreatePostDialog from "@/components/CreatePostDialog";
 
 // Define the types for Hub and Post
 interface Hub {
@@ -28,95 +29,42 @@ interface Post {
     comment_count: number;
 }
 
-// CreatePostDialog Component
-const CreatePostDialog = ({ open, onClose, hubId, schoolId, onPostCreated }: { open: boolean, onClose: () => void, hubId: string, schoolId: string, onPostCreated: (newPost: Post) => void }) => {
-    const { user } = useAuth();
-    const [title, setTitle] = useState('');
-    const [content, setContent] = useState('');
-    const [postType, setPostType] = useState('thread');
-    const [error, setError] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-
-    const handleSubmit = async () => {
-        if (!content.trim()) {
-            setError('Content is required.');
-            return;
+// Helper function to extract text from BlockNote content
+const extractTextFromContent = (content: string): string => {
+    try {
+        // Attempt to parse the content as JSON (from BlockNote)
+        const blocks = JSON.parse(content);
+        if (!Array.isArray(blocks)) {
+            // Fallback for plain text content
+            return content.substring(0, 200);
         }
-        if (postType !== 'reply' && !title.trim()) {
-            setError('Title is required for new threads.');
-            return;
-        }
-        setIsLoading(true);
-        try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    hub_id: parseInt(hubId),
-                    user_id: user?.id,
-                    title,
-                    content,
-                    post_type: postType,
-                })
-            });
-            if (!response.ok) throw new Error('Failed to create post.');
-            const newPostData = await response.json();
-            
-            // Refetch the full post to get all details
-            const postResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts/${newPostData.id}`);
-            const newPost = await postResponse.json();
 
-            onPostCreated(newPost);
-            onClose();
-        } catch (err) {
-            setError('An error occurred. Please try again.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    if (!open) return null;
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="w-full max-w-lg bg-[#1A1A1A] rounded-lg shadow-2xl" onClick={e => e.stopPropagation()}>
-                <div className="p-6">
-                    <h2 className="text-xl font-light text-white mb-4">Create a New Post</h2>
-                    <div className="space-y-4">
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            placeholder="Post Title"
-                            className="w-full px-4 py-3 bg-[#0D0D0D] text-white rounded-lg font-light"
-                        />
-                        <textarea
-                            value={content}
-                            onChange={(e) => setContent(e.target.value)}
-                            placeholder="What's on your mind?"
-                            className="w-full h-32 px-4 py-3 bg-[#0D0D0D] text-white rounded-lg font-light"
-                        />
-                        {error && <p className="text-red-500 text-sm">{error}</p>}
-                    </div>
-                </div>
-                <div className="flex justify-end gap-4 p-6">
-                    <button onClick={onClose} className="px-4 py-2 text-gray-400 hover:text-white" disabled={isLoading}>Cancel</button>
-                    <button onClick={handleSubmit} className="px-6 py-2 bg-white text-black rounded-full" disabled={isLoading}>
-                        {isLoading ? 'Posting...' : 'Post'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
+        // Extract text from each block and join them
+        return blocks
+            .map(block => {
+                if (block.content && Array.isArray(block.content)) {
+                    return block.content.map((inline: any) => inline.text || '').join('');
+                }
+                return '';
+            })
+            .join(' ')
+            .substring(0, 200); // Limit preview length
+    } catch (e) {
+        // If parsing fails, assume it's plain text
+        return content.substring(0, 200);
+    }
 };
 
 // PostCard Component
 const PostCard = ({ post, schoolId }: { post: Post, schoolId: string }) => {
+    const previewText = extractTextFromContent(post.content);
     return (
         <Link href={`/school/${schoolId}/posts/${post.id}`} className="block">
             <div className="bg-[#1A1A1A] p-6 rounded-lg transition-all hover:bg-[#222222] cursor-pointer">
                 <h3 className="text-lg font-medium text-white mb-2">{post.title}</h3>
-                <p className="text-gray-400 text-sm line-clamp-2 mb-4">{post.content}</p>
+                <p className="text-gray-400 text-sm line-clamp-2 mb-4">
+                    {previewText}{previewText.length === 200 ? '...' : ''}
+                </p>
                 <div className="flex justify-between items-center text-xs text-gray-500">
                     <span>By {post.author}</span>
                     <div className="flex items-center gap-4">
@@ -225,7 +173,6 @@ export default function HubPage() {
                 open={isCreateDialogOpen}
                 onClose={() => setIsCreateDialogOpen(false)}
                 hubId={hubId}
-                schoolId={schoolId}
                 onPostCreated={handlePostCreated}
             />
         </>

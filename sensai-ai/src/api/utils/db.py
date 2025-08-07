@@ -57,14 +57,14 @@ async def execute_db_operation(
         else:
             await cursor.execute(operation)
 
+        await conn.commit()
+
         if fetch_one:
             result = await cursor.fetchone()
         elif fetch_all:
             result = await cursor.fetchall()
         else:
             result = None
-
-        await conn.commit()
 
         if get_last_row_id:
             return cursor.lastrowid

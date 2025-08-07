@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ThumbsUp, MessageCircle, HelpCircle, FileText, StickyNote } from "lucide-react";
+import { Block } from "@blocknote/core";
 
 // Define the Post type for props validation
 interface Post {
@@ -20,8 +21,26 @@ interface PostCardProps {
     schoolId: string;
 }
 
+// Helper to get plain text from Block[]
+const getPlainTextFromBlocks = (content: string): string => {
+    if (!content || !content.startsWith('[')) {
+        return content;
+    }
+    try {
+        const blocks: Block[] = JSON.parse(content);
+        if (!Array.isArray(blocks)) return content;
+        return blocks
+            .map((block) =>
+                block.content?.map((inline) => ('text' in inline ? inline.text : '')).join('')
+            )
+            .join(' ')
+            .trim();
+    } catch (e) {
+        return content;
+    }
+};
+
 export default function PostCard({ post, schoolId }: PostCardProps) {
-    
     const getPostIcon = () => {
         switch (post.post_type) {
             case 'question':
@@ -44,7 +63,7 @@ export default function PostCard({ post, schoolId }: PostCardProps) {
                         <span className="ml-2 capitalize">{post.post_type}</span>
                     </div>
                 </div>
-                <p className="text-gray-400 text-sm line-clamp-2 mb-4">{post.content}</p>
+                <p className="text-gray-400 text-sm line-clamp-2 mb-4">{getPlainTextFromBlocks(post.content)}</p>
                 <div className="flex justify-between items-center text-xs text-gray-500">
                     <span>By {post.author}</span>
                     <div className="flex items-center gap-4">
@@ -56,4 +75,4 @@ export default function PostCard({ post, schoolId }: PostCardProps) {
             </div>
         </Link>
     );
-}```
+}

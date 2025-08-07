@@ -1,6 +1,7 @@
 # adityavofficial-hyperge-hackathon-2025/sensai-ai/src/api/db/hub.py
 
 from typing import List, Dict, Optional
+import json
 from api.utils.db import execute_db_operation
 from api.config import (
     hubs_table_name,
@@ -53,7 +54,7 @@ async def delete_post(post_id: int):
     """Deletes a post or a comment."""
     await execute_db_operation(f"DELETE FROM {posts_table_name} WHERE id = ?", (post_id,))
 
-async def create_post(hub_id: int, user_id: int, title: Optional[str], content: str, post_type: str, parent_id: Optional[int] = None) -> int:
+async def create_post(hub_id: int, user_id: int, title: Optional[str], content: str, post_type: str, parent_id: Optional[int] = None, poll_options: Optional[List[str]] = None) -> int:
     """
     Creates a new post or a reply within a hub.
 
@@ -64,15 +65,17 @@ async def create_post(hub_id: int, user_id: int, title: Optional[str], content: 
         content: The main content of the post.
         post_type: The type of post (e.g., 'thread', 'question', 'reply').
         parent_id: The ID of the parent post if this is a reply.
+        poll_options: A list of strings for poll options.
 
     Returns:
         The ID of the newly created post.
     """
+    poll_options_json = json.dumps(poll_options) if poll_options else None
     return await execute_db_operation(
         f"""INSERT INTO {posts_table_name}
-           (hub_id, user_id, title, content, post_type, parent_id)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (hub_id, user_id, title, content, post_type, parent_id),
+           (hub_id, user_id, title, content, post_type, parent_id, poll_options)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (hub_id, user_id, title, content, post_type, parent_id, poll_options_json),
         get_last_row_id=True
     )
 
@@ -90,19 +93,21 @@ async def get_posts_by_hub(hub_id: int) -> List[Dict]:
         SELECT
             p.id, p.title, p.content, p.post_type, p.created_at, u.email as author,
             COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
-            (SELECT COUNT(*) FROM {posts_table_name} WHERE parent_id = p.id) as comment_count
+            (SELECT COUNT(*) FROM {posts_table_name} WHERE parent_id = p.id) as comment_count,
+            p.poll_options
         FROM {posts_table_name} p
         JOIN {users_table_name} u ON p.user_id = u.id
         LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
         WHERE p.hub_id = ? AND p.parent_id IS NULL
-        GROUP BY p.id, p.title, p.content, p.post_type, p.created_at, u.email
+        GROUP BY p.id, p.title, p.content, p.post_type, p.created_at, u.email, p.poll_options
         ORDER BY p.created_at DESC
     """
     rows = await execute_db_operation(query, (hub_id,), fetch_all=True)
     return [
         {
             "id": row[0], "title": row[1], "content": row[2], "post_type": row[3],
-            "created_at": row[4], "author": row[5], "votes": int(row[6]), "comment_count": row[7]
+            "created_at": row[4], "author": row[5], "votes": int(row[6]), "comment_count": row[7],
+            "poll_options": json.loads(row[8]) if row[8] else None
         } for row in rows
     ]
 
@@ -111,12 +116,13 @@ async def get_post_with_details(post_id: int, user_id: Optional[int] = None) -> 
     post_query = f"""
         SELECT p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email as author,
                COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
-               MAX(CASE WHEN pv.user_id = ? THEN pv.vote_type ELSE NULL END) as user_vote
+               MAX(CASE WHEN pv.user_id = ? THEN pv.vote_type ELSE NULL END) as user_vote,
+               p.poll_options
         FROM {posts_table_name} p
         JOIN {users_table_name} u ON p.user_id = u.id
         LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
         WHERE p.id = ?
-        GROUP BY p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email
+        GROUP BY p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email, p.poll_options
     """
     post_rows = await execute_db_operation(post_query, (user_id, post_id), fetch_all=True)
     if not post_rows:
@@ -141,6 +147,7 @@ async def get_post_with_details(post_id: int, user_id: Optional[int] = None) -> 
         "id": post_row[0], "hub_id": post_row[1], "title": post_row[2], "content": post_row[3],
         "post_type": post_row[4], "created_at": post_row[5], "author": post_row[6],
         "votes": int(post_row[7]), "user_vote": post_row[8],
+        "poll_options": json.loads(post_row[9]) if post_row[9] else None,
         "comments": [
             {
                 "id": row[0], "content": row[1], "created_at": row[2], "author": row[3],
