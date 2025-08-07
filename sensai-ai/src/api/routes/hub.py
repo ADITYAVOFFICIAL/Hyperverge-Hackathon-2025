@@ -75,6 +75,24 @@ async def get_post(post_id: int) -> PostWithComments:
     return post_details
 
 
+@router.delete("/posts/{post_id}", status_code=204)
+async def delete_post(post_id: int):
+    """
+    Deletes a post or a comment.
+    """
+    await hub_db.delete_post(post_id)
+    return
+
+
+@router.delete("/{hub_id}", status_code=204)
+async def delete_hub(hub_id: int):
+    """
+    Deletes a hub.
+    """
+    await hub_db.delete_hub(hub_id)
+    return
+
+
 @router.post("/posts/{post_id}/vote", response_model=Dict[str, bool])
 async def vote_on_post(post_id: int, request: PostVoteRequest) -> Dict[str, bool]:
     """

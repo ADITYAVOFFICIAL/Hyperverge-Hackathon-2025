@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
-import { ArrowLeft, ThumbsUp } from "lucide-react";
+import { ArrowLeft, ThumbsUp, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import ConfirmationDialog from "@/components/ConfirmationDialog";
 
 // Define the types for Post and Comment
 interface Comment {
@@ -39,6 +40,7 @@ export default function PostPage() {
   const [error, setError] = useState<string | null>(null);
   const [newComment, setNewComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{ id: number; isComment: boolean } | null>(null);
 
   useEffect(() => {
     const fetchPost = async () => {
@@ -199,6 +201,27 @@ export default function PostPage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!itemToDelete) return;
+
+    try {
+        await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts/${itemToDelete.id}`, {
+            method: 'DELETE',
+        });
+
+        if (itemToDelete.isComment) {
+            setPost(prev => prev ? { ...prev, comments: prev.comments.filter(c => c.id !== itemToDelete.id) } : null);
+        } else {
+            // If the post itself is deleted, go back to the hub page.
+            router.back();
+        }
+    } catch (err) {
+        console.error("Failed to delete item:", err);
+    } finally {
+        setItemToDelete(null);
+    }
+  };
+
   return (
     <>
       <Header />
@@ -222,19 +245,14 @@ export default function PostPage() {
 
           {!loading && post && (
             <div>
-              {/* Main Post */}
-              <div className="bg-[#1A1A1A] p-8 rounded-lg">
-                <h1 className="text-3xl font-light text-white mb-4">
-                  {post.title}
-                </h1>
+              <div className="bg-[#1A1A1A] p-8 rounded-lg relative group">
+                <h1 className="text-3xl font-light text-white mb-4">{post.title}</h1>
                 <div className="flex items-center text-sm text-gray-500 mb-6">
                   <span>By {post.author}</span>
                   <span className="mx-2">•</span>
-                  <span>
-                    {new Date(post.created_at).toLocaleDateString()}
-                  </span>
+                  <span>{new Date(post.created_at).toLocaleDateString()}</span>
                 </div>
-                <p className="text-gray-300 leading-relaxed mb-6">
+                <p className="text-gray-300 leading-relaxed mb-6 whitespace-pre-wrap">
                   {post.content}
                 </p>
                 <div className="flex items-center gap-4">
@@ -245,6 +263,13 @@ export default function PostPage() {
                     <ThumbsUp size={16} /> {post.votes} Helpful
                   </button>
                 </div>
+                <button
+                    onClick={() => setItemToDelete({ id: post.id, isComment: false })}
+                    className="absolute top-4 right-4 p-2 text-gray-500 hover:text-red-500 rounded-full bg-gray-800/50 opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Delete post"
+                >
+                    <Trash2 size={16} />
+                </button>
               </div>
 
               {/* Comments Section */}
@@ -276,7 +301,7 @@ export default function PostPage() {
                 {/* Comments List */}
                 <div className="space-y-6">
                   {post.comments.map((comment) => (
-                    <div key={comment.id} className="border-t border-gray-800 pt-6">
+                    <div key={comment.id} className="border-t border-gray-800 pt-6 group relative">
                       <div className="flex justify-between items-start">
                         <div>
                           <p className="text-gray-300 mb-2">
@@ -297,6 +322,13 @@ export default function PostPage() {
                           <ThumbsUp size={14} /> {comment.votes}
                         </button>
                       </div>
+                      <button
+                        onClick={() => setItemToDelete({ id: comment.id, isComment: true })}
+                        className="absolute top-6 right-0 p-2 text-gray-500 hover:text-red-500 rounded-full bg-gray-800/50 opacity-0 group-hover:opacity-100 transition-opacity"
+                        aria-label="Delete comment"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -305,6 +337,15 @@ export default function PostPage() {
           )}
         </main>
       </div>
+      <ConfirmationDialog
+        show={itemToDelete !== null}
+        title={`Delete ${itemToDelete?.isComment ? 'Comment' : 'Post'}`}
+        message={`Are you sure you want to delete this ${itemToDelete?.isComment ? 'comment' : 'post'}? This action cannot be undone.`}
+        confirmButtonText="Delete"
+        onConfirm={handleDelete}
+        onCancel={() => setItemToDelete(null)}
+        type="delete"
+      />
     </>
   );
 }

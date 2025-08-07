@@ -38,7 +38,6 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
     const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
     const [isCreateCohortDialogOpen, setIsCreateCohortDialogOpen] = useState(false);
-    const [isCreateCourseDialogOpen, setIsCreateCourseDialogOpen] = useState(false);
     const [memberToDelete, setMemberToDelete] = useState<TeamMember | null>(null);
     const schoolNameRef = useRef<HTMLHeadingElement>(null);
     const [selectedMembers, setSelectedMembers] = useState<TeamMember[]>([]);
@@ -51,6 +50,7 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
 
     const { hubs, setHubs, isLoading: isLoadingHubs, error: hubsError } = useHubs(id);
     const [isCreateHubDialogOpen, setIsCreateHubDialogOpen] = useState(false);
+    const [hubToDelete, setHubToDelete] = useState<number | null>(null);
 
     // Add useEffect to automatically hide toast after 5 seconds
     useEffect(() => {
@@ -301,6 +301,31 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
             emoji: '🎉'
         });
         setShowToast(true);
+    };
+
+    const handleHubDelete = async () => {
+        if (!hubToDelete) return;
+        try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/${hubToDelete}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to delete hub');
+            }
+
+            setHubs(prev => prev.filter(h => h.id !== hubToDelete));
+            setToastMessage({
+                title: 'Hub Deleted',
+                description: 'The hub has been successfully deleted.',
+                emoji: '🗑️'
+            });
+            setShowToast(true);
+        } catch (error) {
+            console.error("Error deleting hub:", error);
+        } finally {
+            setHubToDelete(null);
+        }
     };
 
     const refreshCohorts = async () => {
@@ -560,7 +585,7 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                                     ) : hubs.length > 0 ? (
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                             {hubs.map(hub => (
-                                                <HubCard key={hub.id} hub={hub} schoolId={id} />
+                                                <HubCard key={hub.id} hub={hub} schoolId={id} isAdmin={true} onDelete={() => setHubToDelete(hub.id)} />
                                             ))}
                                         </div>
                                     ) : (
@@ -577,6 +602,7 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
             </div>
 
             {/* Dialogs and Toasts */}
+            <CreateHubDialog open={isCreateHubDialogOpen} onClose={() => setIsCreateHubDialogOpen(false)} schoolId={id} onHubCreated={handleHubCreated} />
             <InviteMembersDialog open={isInviteDialogOpen} onClose={() => setIsInviteDialogOpen(false)} onInvite={handleInviteMembers} />
             
             <ConfirmationDialog
@@ -592,13 +618,23 @@ export default function ClientSchoolAdminView({ id }: { id: string }) {
                 type="delete"
             />
 
-            <CreateCohortDialog open={isCreateCohortDialogOpen} onClose={() => setIsCreateCohortDialogOpen(false)} onCreateCohort={handleCreateCohort} schoolId={id} />
-            
-            <CreateCourseDialog open={isCreateCourseDialogOpen} onClose={() => setIsCreateCourseDialogOpen(false)} onSuccess={handleCourseCreationSuccess} schoolId={id} />
-            
-            <CreateHubDialog open={isCreateHubDialogOpen} onClose={() => setIsCreateHubDialogOpen(false)} schoolId={id} onHubCreated={handleHubCreated} />
-            
-            <Toast show={showToast} title={toastMessage.title} description={toastMessage.description} emoji={toastMessage.emoji} onClose={() => setShowToast(false)} />
+            <ConfirmationDialog
+                show={hubToDelete !== null}
+                title="Delete Hub"
+                message="Are you sure you want to delete this hub? All of its posts and comments will be permanently removed. This action cannot be undone."
+                confirmButtonText="Delete"
+                onConfirm={handleHubDelete}
+                onCancel={() => setHubToDelete(null)}
+                type="delete"
+            />
+
+            <Toast
+                show={showToast}
+                title={toastMessage.title}
+                description={toastMessage.description}
+                emoji={toastMessage.emoji}
+                onClose={() => setShowToast(false)}
+            />
         </>
     );
 }

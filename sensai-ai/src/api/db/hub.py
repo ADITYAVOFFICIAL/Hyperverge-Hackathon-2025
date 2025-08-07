@@ -45,6 +45,14 @@ async def get_hubs_by_org(org_id: int) -> List[Dict]:
     )
     return [{"id": row[0], "name": row[1], "description": row[2]} for row in rows]
 
+async def delete_hub(hub_id: int):
+    """Deletes a hub and all its associated posts and data."""
+    await execute_db_operation(f"DELETE FROM {hubs_table_name} WHERE id = ?", (hub_id,))
+
+async def delete_post(post_id: int):
+    """Deletes a post or a comment."""
+    await execute_db_operation(f"DELETE FROM {posts_table_name} WHERE id = ?", (post_id,))
+
 async def create_post(hub_id: int, user_id: int, title: Optional[str], content: str, post_type: str, parent_id: Optional[int] = None) -> int:
     """
     Creates a new post or a reply within a hub.
