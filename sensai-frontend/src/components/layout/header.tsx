@@ -182,7 +182,7 @@ export function Header({
                             alt="SensAI Logo"
                             width={120}
                             height={40}
-                            className="w-[100px] h-auto sm:w-[120px]"
+                            className="w-[100px] sm:w-[120px]"
                             style={{
                                 maxWidth: '100%',
                                 height: 'auto'

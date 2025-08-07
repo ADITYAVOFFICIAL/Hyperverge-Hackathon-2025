@@ -107,7 +107,7 @@ export default function CreatePostDialog({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             hub_id: parseInt(hubId),
-            user_id: parseInt(user.id),
+            user_id: user.id,
             title: postType === 'reply' ? null : title,
             content: JSON.stringify(content), // Stringify the content array
             post_type: postType,

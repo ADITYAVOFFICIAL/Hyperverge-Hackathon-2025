@@ -115,35 +115,68 @@ async def get_posts_by_hub(hub_id: int) -> List[Dict]:
 
 
 async def get_post_with_details(post_id: int, user_id: Optional[int] = None) -> Optional[Dict]:
-    post_query = f"""
-        SELECT p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email as author,
-               COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
-               MAX(CASE WHEN pv.user_id = ? THEN pv.vote_type ELSE NULL END) as user_vote,
-               p.poll_options
-        FROM {posts_table_name} p
-        JOIN {users_table_name} u ON p.user_id = u.id
-        LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
-        WHERE p.id = ?
-        GROUP BY p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email, p.poll_options
-    """
-    post_rows = await execute_db_operation(post_query, (user_id, post_id), fetch_all=True)
+    # Handle the case where user_id is None
+    if user_id is None:
+        post_query = f"""
+            SELECT p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email as author,
+                   COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
+                   NULL as user_vote,
+                   p.poll_options
+            FROM {posts_table_name} p
+            JOIN {users_table_name} u ON p.user_id = u.id
+            LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
+            WHERE p.id = ?
+            GROUP BY p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email, p.poll_options
+        """
+        post_rows = await execute_db_operation(post_query, (post_id,), fetch_all=True)
+    else:
+        post_query = f"""
+            SELECT p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email as author,
+                   COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
+                   MAX(CASE WHEN pv.user_id = ? THEN pv.vote_type ELSE NULL END) as user_vote,
+                   p.poll_options
+            FROM {posts_table_name} p
+            JOIN {users_table_name} u ON p.user_id = u.id
+            LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
+            WHERE p.id = ?
+            GROUP BY p.id, p.hub_id, p.title, p.content, p.post_type, p.created_at, u.email, p.poll_options
+        """
+        post_rows = await execute_db_operation(post_query, (user_id, post_id), fetch_all=True)
     if not post_rows:
         return None
     post_row = post_rows[0]
 
-    comments_query = f"""
-        SELECT p.id, p.content, p.created_at, u.email as author,
-               COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
-               MAX(CASE WHEN pv.user_id = ? THEN pv.vote_type ELSE NULL END) as user_vote,
-               p.hub_id, p.post_type
-        FROM {posts_table_name} p
-        JOIN {users_table_name} u ON p.user_id = u.id
-        LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
-        WHERE p.parent_id = ?
-        GROUP BY p.id, p.content, p.created_at, u.email, p.hub_id, p.post_type
-        ORDER BY p.created_at ASC
-    """
-    comment_rows = await execute_db_operation(comments_query, (user_id, post_id), fetch_all=True)
+    # Handle comments query based on whether user_id is provided
+    if user_id is None:
+        comments_query = f"""
+            SELECT p.id, p.content, p.created_at, u.email as author,
+                   COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
+                   NULL as user_vote,
+                   p.hub_id, p.post_type
+            FROM {posts_table_name} p
+            JOIN {users_table_name} u ON p.user_id = u.id
+            LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
+            WHERE p.parent_id = ?
+              AND (p.moderation_status IS NULL OR p.moderation_status NOT IN ('flagged', 'removed'))
+            GROUP BY p.id, p.content, p.created_at, u.email, p.hub_id, p.post_type
+            ORDER BY p.created_at ASC
+        """
+        comment_rows = await execute_db_operation(comments_query, (post_id,), fetch_all=True)
+    else:
+        comments_query = f"""
+            SELECT p.id, p.content, p.created_at, u.email as author,
+                   COALESCE(SUM(CASE WHEN pv.vote_type = 'up' THEN 1 WHEN pv.vote_type = 'down' THEN -1 ELSE 0 END), 0) as votes,
+                   MAX(CASE WHEN pv.user_id = ? THEN pv.vote_type ELSE NULL END) as user_vote,
+                   p.hub_id, p.post_type
+            FROM {posts_table_name} p
+            JOIN {users_table_name} u ON p.user_id = u.id
+            LEFT JOIN {post_votes_table_name} pv ON p.id = pv.post_id
+            WHERE p.parent_id = ?
+              AND (p.moderation_status IS NULL OR p.moderation_status NOT IN ('flagged', 'removed'))
+            GROUP BY p.id, p.content, p.created_at, u.email, p.hub_id, p.post_type
+            ORDER BY p.created_at ASC
+        """
+        comment_rows = await execute_db_operation(comments_query, (user_id, post_id), fetch_all=True)
 
     post = {
         "id": post_row[0], "hub_id": post_row[1], "title": post_row[2], "content": post_row[3],
@@ -208,3 +241,12 @@ async def update_post_moderation_status(post_id: int, status: str):
         f"UPDATE {posts_table_name} SET moderation_status = ? WHERE id = ?",
         (status, post_id)
     )
+
+async def get_hub_id_for_post(post_id: int) -> Optional[int]:
+    """Get the hub_id for a given post_id"""
+    rows = await execute_db_operation(
+        f"SELECT hub_id FROM {posts_table_name} WHERE id = ?",
+        (post_id,),
+        fetch_all=True
+    )
+    return rows[0][0] if rows else None

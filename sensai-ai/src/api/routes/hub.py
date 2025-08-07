@@ -13,6 +13,8 @@ from api.models import (
 )
 from ..services.moderation import moderate_content
 from ..db import hub as hub_db
+from google import genai
+from google.genai import types
 
 router = APIRouter()
 
@@ -83,7 +85,7 @@ async def create_post(request: CreatePostRequest, background_tasks: BackgroundTa
         )
     
     # Return the post immediately (before moderation completes)
-    post = await hub_db.get_post_with_details(post_id)
+    post = await hub_db.get_post_with_details(post_id, request.user_id)
     if not post:
         raise HTTPException(status_code=500, detail="Failed to retrieve created post")
     
@@ -146,7 +148,7 @@ async def get_post(post_id: int, userId: Optional[int] = None) -> PostWithCommen
     """
     Retrieves a single post along with its details and all associated comments.
     """
-    post_details = await hub_db.get_post_with_details(post_id)
+    post_details = await hub_db.get_post_with_details(post_id, userId)
     if not post_details:
         raise HTTPException(status_code=404, detail="Post not found")
 

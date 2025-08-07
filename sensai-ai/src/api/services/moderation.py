@@ -1,32 +1,13 @@
 import json
 import sqlite3
-from typing import Dict, Any
-from pathlib import Path
-from openai import AsyncOpenAI, OpenAI
-from pydantic import BaseModel
+import asyncio
+from typing import Any, Dict
+
+from google import genai
+from google.genai import types
+
 from ..models import ModerationResult
-from ..settings import settings
 from ..config import sqlite_db_path
-
-class ModerationOutput(BaseModel):
-    is_flagged: bool
-    severity: str  # "low", "medium", "high"
-    reason: str
-    action: str  # "approve", "flag", "remove"
-    confidence: float
-
-def validate_openai_api_key_for_moderation(openai_api_key: str) -> bool:
-    """Validate OpenAI API key for moderation, similar to llm.py pattern"""
-    if not openai_api_key or len(openai_api_key) < 10:
-        return None
-        
-    client = OpenAI(api_key=openai_api_key)
-    try:
-        models = client.models.list()
-        model_ids = [model.id for model in models.data]
-        return True  # API key is valid
-    except Exception:
-        return None
 
 async def log_moderation_result(content_type: str, content_id: int, user_id: int, content: str, result: ModerationResult):
     """Log moderation result to database"""
@@ -45,92 +26,119 @@ async def log_moderation_result(content_type: str, content_id: int, user_id: int
     except Exception as e:
         print(f"Error logging moderation result: {e}")
 
+def _build_prompt(content: str) -> str:
+    # Model is instructed to output strict JSON only.
+    return f"""
+You are a content moderator. Analyze the INPUT and return ONLY a JSON object with these exact keys:
+- is_flagged: boolean (true if violates policy)
+- severity: one of "low", "medium", "high"
+- reason: short string explaining key categories involved
+- action: one of "approve", "flag", "remove"
+- confidence: float from 0.0 to 1.0 (your confidence in the decision)
+
+Policies to detect include (non-exhaustive): sexual (non-CSAM), CSAM (must be flagged as prohibited), hate, harassment, dangerous (illegal activities, self-harm), toxic, violent, profanity, illicit (drugs, firearms, tobacco, gambling).
+Consider satire, quoting, or counterspeech. If clearly non-violative, set is_flagged=false, action="approve".
+
+Determine action:
+- "remove": severe or clearly prohibited content (e.g., CSAM, explicit threats, incitement to violence, sexual/minors).
+- "flag": borderline, context-dependent, or medium severity (needs human review).
+- "approve": benign content.
+
+Return JSON ONLY. Do not include any explanation outside the JSON.
+
+INPUT:
+{content}
+""".strip()
+
+def _parse_json_safely(text: str) -> Dict[str, Any]:
+    # Try direct parse; if fails, attempt to extract JSON object.
+    try:
+        return json.loads(text)
+    except Exception:
+        # Heuristic: find first '{' and last '}'.
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end+1])
+            except Exception:
+                pass
+    return {}
+
 async def moderate_content(content: str, post_id: int, user_id: int, content_type: str = "post") -> ModerationResult:
     """
-    Moderate content using OpenAI's moderation API.
+    Moderate content using Google Gemini. API key is embedded per request.
     """
+    # Replace with your actual Gemini API key
+    GEMINI_API_KEY = "AIzaSyD5p2TV0337a5NxaWXDhM9J1uYLbjBPt-M"
+
     try:
-        # Check if OpenAI API key is available and valid
-        if not settings.openai_api_key:
-            print(f"OpenAI API key not configured, skipping moderation for {content_type} {post_id}")
-            result = ModerationResult(
-                is_flagged=False,
-                severity="low",
-                reason="Moderation skipped - API key not configured",
-                action="approve",
-                confidence=1.0
-            )
-            await log_moderation_result(content_type, post_id, user_id, content, result)
-            return result
-        
-        # Validate API key
-        api_key_validation = validate_openai_api_key_for_moderation(settings.openai_api_key)
-        if api_key_validation is None:
-            print(f"Invalid OpenAI API key, skipping moderation for {content_type} {post_id}")
-            result = ModerationResult(
-                is_flagged=False,
-                severity="low",
-                reason="Moderation skipped - Invalid API key",
-                action="approve",
-                confidence=1.0
-            )
-            await log_moderation_result(content_type, post_id, user_id, content, result)
-            return result
-        
-        # Create client using the validated API key
-        client = AsyncOpenAI(api_key=settings.openai_api_key)
-        
-        # Use OpenAI's moderation endpoint
-        response = await client.moderations.create(input=content)
-        
-        moderation = response.results[0]
-        
-        if moderation.flagged:
-            # Determine severity and action based on categories
-            high_severity_categories = ['hate', 'violence', 'sexual/minors']
-            medium_severity_categories = ['harassment', 'self-harm']
-            
-            flagged_categories = [cat for cat, flagged in moderation.categories.model_dump().items() if flagged]
-            
-            if any(cat in high_severity_categories for cat in flagged_categories):
-                severity = "high"
-                action = "remove"
-            elif any(cat in medium_severity_categories for cat in flagged_categories):
-                severity = "medium"
-                action = "flag"
-            else:
-                severity = "low"
-                action = "flag"
-            
-            result = ModerationResult(
-                is_flagged=True,
-                severity=severity,
-                reason=f"Flagged for: {', '.join(flagged_categories)}",
-                action=action,
-                confidence=max(moderation.category_scores.model_dump().values())
-            )
-        else:
-            result = ModerationResult(
-                is_flagged=False,
-                severity="low", 
-                reason="Content approved",
-                action="approve",
-                confidence=1.0 - max(moderation.category_scores.model_dump().values())
-            )
-        
-        # Log the moderation result
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        prompt = _build_prompt(content)
+
+        # Disable blocking so the model always returns a classification.
+        safety_settings = [
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,        threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,         threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,  threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,  threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,    threshold=types.HarmBlockThreshold.BLOCK_NONE),
+        ]
+
+        config = types.GenerateContentConfig(
+            temperature=0,
+            safety_settings=safety_settings,
+        )
+
+        # Run in a worker thread to avoid blocking the event loop.
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model="gemini-2.0-flash-lite",
+            contents=prompt,
+            config=config,
+        )
+
+        text = getattr(response, "text", None) or ""
+        data = _parse_json_safely(text)
+
+        # Map to ModerationResult with safe defaults.
+        is_flagged = bool(data.get("is_flagged", data.get("violation", False)))
+        severity = str(data.get("severity", "low")).lower()
+        if severity not in {"low", "medium", "high"}:
+            severity = "low"
+
+        reason = data.get("reason") or ("Content approved" if not is_flagged else "Flagged content")
+
+        action = str(data.get("action", "approve")).lower()
+        if action not in {"approve", "flag", "remove"}:
+            action = "approve" if not is_flagged else "flag"
+
+        try:
+            confidence = float(data.get("confidence", 0.9 if not is_flagged else 0.8))
+        except Exception:
+            confidence = 0.9 if not is_flagged else 0.8
+
+        result = ModerationResult(
+            is_flagged=is_flagged,
+            severity=severity,
+            reason=reason,
+            action=action,
+            confidence=confidence,
+        )
+
         await log_moderation_result(content_type, post_id, user_id, content, result)
         return result
-            
+
     except Exception as e:
-        print(f"Error in content moderation: {e}")
+        print(f"Error in content moderation (Gemini): {e}")
         # Default to approved if moderation fails
         result = ModerationResult(
             is_flagged=False,
             severity="low",
             reason=f"Moderation error: {str(e)}",
-            action="approve", 
-            confidence=0.5
+            action="approve",
+            confidence=0.5,
         )
         await log_moderation_result(content_type, post_id, user_id, content, result)
         return result
