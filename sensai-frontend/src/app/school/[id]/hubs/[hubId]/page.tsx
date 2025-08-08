@@ -91,6 +91,9 @@ export default function HubPage() {
     const [error, setError] = useState<string | null>(null);
     const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
+    // Add search state
+    const [searchQuery, setSearchQuery] = useState("");
+
     useEffect(() => {
     const fetchData = async () => {
         try {
@@ -120,6 +123,16 @@ export default function HubPage() {
         setPosts(prevPosts => [newPost, ...prevPosts]);
     };
 
+    // Derive filtered posts
+    const filteredPosts = posts.filter((p) => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return true;
+        const title = (p.title || "").toLowerCase();
+        const text = extractTextFromContent(p.content).toLowerCase();
+        const author = (p.author || "").toLowerCase();
+        return title.includes(q) || text.includes(q) || author.includes(q);
+    });
+
     return (
         <>
             <Header />
@@ -130,7 +143,7 @@ export default function HubPage() {
                             <ArrowLeft size={16} className="mr-2" />
                             Back to Hubs
                         </button>
-                        <div className="flex justify-between items-center">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                             <div>
                                 <h1 className="text-3xl font-light">{hub?.name || 'Loading Hub...'}</h1>
                                 <p className="text-gray-400 mt-1">{hub?.description}</p>
@@ -142,6 +155,36 @@ export default function HubPage() {
                                 <Plus size={16} className="mr-2" />
                                 Create Post
                             </button>
+                        </div>
+
+                        {/* Search bar */}
+                        <div className="mt-6">
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    placeholder="Search posts by title, content, or author"
+                                    className="w-full bg-[#0D0D0D] text-white rounded-md px-4 py-2 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery("")}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                                        aria-label="Clear search"
+                                    >
+                                        ×
+                                    </button>
+                                )}
+                            </div>
+                            {/* Optional result count */}
+                            {posts.length > 0 && (
+                                <div className="mt-2 text-xs text-gray-500">
+                                    {searchQuery
+                                        ? `Showing ${filteredPosts.length} of ${posts.length} posts`
+                                        : `${posts.length} posts`}
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -156,9 +199,16 @@ export default function HubPage() {
                     {!loading && !error && (
                         <div className="space-y-6">
                             {posts.length > 0 ? (
-                                posts.map(post => (
-                                    <PostCard key={post.id} post={post} schoolId={schoolId} />
-                                ))
+                                filteredPosts.length > 0 ? (
+                                    filteredPosts.map(post => (
+                                        <PostCard key={post.id} post={post} schoolId={schoolId} />
+                                    ))
+                                ) : (
+                                    <div className="text-center py-20">
+                                        <h2 className="text-2xl font-medium mb-2">No matching posts</h2>
+                                        <p className="text-gray-400">Try a different search term.</p>
+                                    </div>
+                                )
                             ) : (
                                 <div className="text-center py-20">
                                     <h2 className="text-2xl font-medium mb-2">Be the First to Post</h2>
