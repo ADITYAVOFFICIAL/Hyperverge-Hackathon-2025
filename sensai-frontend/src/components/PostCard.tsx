@@ -1,7 +1,7 @@
 // adityavofficial-hyperverge-hackathon-2025/sensai-frontend/src/components/PostCard.tsx
 
 import Link from "next/link";
-import { ThumbsUp, MessageCircle, HelpCircle, FileText, StickyNote } from "lucide-react";
+import { ThumbsUp, MessageCircle, HelpCircle, FileText, StickyNote, Poll } from "lucide-react";
 import { Block } from "@blocknote/core";
 
 // Define the Post type for props validation
@@ -47,6 +47,8 @@ export default function PostCard({ post, schoolId }: PostCardProps) {
                 return <HelpCircle size={16} className="text-blue-400" />;
             case 'note':
                 return <StickyNote size={16} className="text-yellow-400" />;
+            case 'poll':
+                return <Poll size={16} className="text-green-400" />;
             case 'thread':
             default:
                 return <FileText size={16} className="text-gray-400" />;
