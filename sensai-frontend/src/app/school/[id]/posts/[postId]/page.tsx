@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import BlockNoteEditor from "@/components/BlockNoteEditor";
 import { Block } from "@blocknote/core";
 import ConfirmationDialog from "@/components/ConfirmationDialog";
+import { moderateContent } from "@/lib/gemini";
 
 // A reusable interface for items that can be voted on.
 // `user_vote` tracks the logged-in user's vote status on the post and comments.
@@ -88,10 +89,20 @@ export default function PostPage() {
   }, [postId, fetchPost]);
 
   const handleAddComment = async () => {
-    if (newComment.length === 0 || !user || !post) return;
+    const contentAsText = newComment.map(block => block.content?.map(c => c.text).join('') || '').join('\n');
+    if (contentAsText.trim().length === 0 || !user || !post) return;
     setIsSubmitting(true);
     setCommentError(null);
+
     try {
+      // Moderate content before submitting
+      const moderationResult = await moderateContent(contentAsText);
+      if (moderationResult.action === 'remove' || moderationResult.action === 'flag') {
+          setCommentError(`This comment cannot be posted. Reason: ${moderationResult.reason}`);
+          setIsSubmitting(false);
+          return;
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

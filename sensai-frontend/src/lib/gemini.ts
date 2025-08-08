@@ -98,6 +98,35 @@ const getAction = (severity: Severity): Action => {
     }
 };
 
+/**
+ * Builds a structured prompt for the Gemini model to get a consistent JSON output.
+ * @param content The user-generated content to be moderated.
+ * @returns The full prompt string.
+ */
+const buildModerationPrompt = (content: string): string => {
+    return `
+        Analyze the following content for any policy violations (hate speech, harassment, sexual content, dangerous content).
+        Respond ONLY with a JSON object in the format:
+        {
+          "is_flagged": boolean,
+          "severity": "low" | "medium" | "high",
+          "reason": string,
+          "action": "approve" | "flag" | "remove",
+          "confidence": float (0.0 to 1.0)
+        }
+
+        - is_flagged: true if any policy is violated, otherwise false.
+        - severity: "low" for minor issues, "medium" for clear violations that need review, "high" for severe violations that should be removed.
+        - reason: A brief explanation for your decision. If not flagged, say "Content approved".
+        - action: "approve" if safe, "flag" for review, "remove" for severe violations.
+        - confidence: Your confidence in this assessment.
+
+        Content to analyze:
+        ---
+        ${content}
+        ---
+    `;
+};
 
 // --- Core Moderation Logic ---
 
@@ -121,49 +150,22 @@ export const moderateContent = async (content: string): Promise<ModerationResult
 
     try {
         const model = genAI.getGenerativeModel({ model: MODEL_NAME, safetySettings });
-        const result = await model.generateContent(content);
-        const response = result.response;
-
-        const ratings = response.candidates?.[0]?.safetyRatings || [];
+        const prompt = buildModerationPrompt(content);
         
-        const flaggedCategories = ratings.filter(
-            (rating) => rating.probability !== 'NEGLIGIBLE'
-        );
+        const result = await model.generateContent(prompt);
+        const response = result.response;
+        const text = response.text();
 
-        if (flaggedCategories.length > 0) {
-            let highestSeverity: Severity = "low";
-            for (const rating of flaggedCategories) {
-                const currentSeverity = getSeverity(rating.category);
-                if (currentSeverity === "high") {
-                    highestSeverity = "high";
-                    break; // High severity is the maximum, no need to check further
-                }
-                if (currentSeverity === "medium") {
-                    highestSeverity = "medium";
-                }
-            }
-
-            const reason = `Flagged for: ${flaggedCategories.map(c => `${c.category.replace('HARM_CATEGORY_', '')} (${c.probability})`).join(', ')}`;
-            
-            return {
-                is_flagged: true,
-                severity: highestSeverity,
-                reason: reason,
-                action: getAction(highestSeverity),
-                // Confidence is high as it's based on direct API feedback.
-                // A more complex mapping from probability strings could be used if needed.
-                confidence: 0.9,
-            };
+        // Extract JSON from the response
+        const jsonMatch = text.match(/```json\n([\s\S]*?)\n```|({[\s\S]*})/);
+        if (!jsonMatch) {
+            throw new Error("Moderation response was not in the expected JSON format.");
         }
 
-        // If no categories were flagged
-        return {
-            is_flagged: false,
-            severity: "low",
-            reason: "Content approved",
-            action: "approve",
-            confidence: 1.0,
-        };
+        const jsonString = jsonMatch[1] || jsonMatch[2];
+        const moderation = JSON.parse(jsonString) as ModerationResult;
+
+        return moderation;
 
     } catch (error) {
         console.error("Error during content moderation:", error);

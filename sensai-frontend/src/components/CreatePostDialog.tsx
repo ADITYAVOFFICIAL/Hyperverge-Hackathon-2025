@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/auth';
 import { Post } from '@/lib/api';
+import { moderateContent } from '@/lib/gemini';
 import BlockNoteEditor from './BlockNoteEditor';
 import { Block } from '@blocknote/core';
 import { X, Plus, FileText, HelpCircle, StickyNote, ListChecks } from 'lucide-react';
@@ -77,7 +78,9 @@ export default function CreatePostDialog({
 
   const handleSubmit = async () => {
     console.log('[CreatePost] handleSubmit start', { title, content, postType });
-    if (postType !== 'poll' && content.length === 0) {
+    const contentAsText = content.map(block => block.content?.map(c => c.text).join('') || '').join('\n');
+
+    if (postType !== 'poll' && !contentAsText.trim()) {
       console.log('[CreatePost] validation failed: empty content');
       setError('Content is required.');
       return;
@@ -100,6 +103,14 @@ export default function CreatePostDialog({
     setError('');
 
     try {
+      // Moderate content before submitting
+      const moderationResult = await moderateContent(title + "\n" + contentAsText);
+      if (moderationResult.action === 'remove' || moderationResult.action === 'flag') {
+          setError(`This content cannot be posted. Reason: ${moderationResult.reason}`);
+          setIsLoading(false);
+          return;
+      }
+
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts`,
         {
