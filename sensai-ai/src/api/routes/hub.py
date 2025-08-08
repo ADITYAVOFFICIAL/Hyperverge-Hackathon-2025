@@ -3,7 +3,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from typing import List, Dict, Optional
 from pydantic import BaseModel
-from api.db import hub as hub_db
 from api.models import (
     CreateHubRequest,
     Hub,
@@ -12,7 +11,6 @@ from api.models import (
     Post,
     PostWithComments
 )
-from ..services.moderation import moderate_content
 from ..db import hub as hub_db
 from ..db.hub import invest_in_comment, increment_post_views, settle_investment
 from google import genai
@@ -57,7 +55,7 @@ async def get_posts_for_hub(hub_id: int) -> List[Post]:
 @router.post("/posts", response_model=Post)
 async def create_post(request: CreatePostRequest, background_tasks: BackgroundTasks) -> Post:
     """
-    Creates a new post within a hub with AI moderation.
+    Creates a new post within a hub.
     """
     # Create the post first
     post_id = await hub_db.create_post(
@@ -70,81 +68,12 @@ async def create_post(request: CreatePostRequest, background_tasks: BackgroundTa
         poll_options=request.poll_options
     )
     
-    # Add moderation task to background
-    if request.parent_id:  # This is a comment
-        background_tasks.add_task(
-            moderate_comment_content,
-            comment_id=post_id,
-            user_id=request.user_id,
-            content=request.content
-        )
-    else:  # This is a post
-        background_tasks.add_task(
-            moderate_post_content,
-            post_id=post_id,
-            user_id=request.user_id,
-            content=request.content
-        )
-    
-    # Return the post immediately (before moderation completes)
+    # Return the post immediately
     post = await hub_db.get_post_with_details(post_id, request.user_id)
     if not post:
         raise HTTPException(status_code=500, detail="Failed to retrieve created post")
     
     return post
-
-async def moderate_post_content(post_id: int, user_id: int, content: str):
-    """Background task to moderate post content"""
-    try:
-        # Call the moderation service
-        moderation_result = await moderate_content(
-            content=content,
-            post_id=post_id,
-            user_id=user_id,
-            content_type="post"
-        )
-        
-        # Update post status based on moderation result
-        if moderation_result.action == "approve":
-            await hub_db.update_post_moderation_status(post_id, 'approved')
-        elif moderation_result.action == "flag":
-            await hub_db.update_post_moderation_status(post_id, 'flagged')
-        elif moderation_result.action == "remove":
-            await hub_db.update_post_moderation_status(post_id, 'removed')
-            
-        print(f"Post {post_id} moderation completed: {moderation_result.action}")
-        
-    except Exception as e:
-        print(f"Error moderating post {post_id}: {e}")
-        # Default to approved if moderation fails
-        await hub_db.update_post_moderation_status(post_id, 'approved')
-
-async def moderate_comment_content(comment_id: int, user_id: int, content: str):
-    """Background task to moderate comment content"""
-    try:
-        # Call the moderation service for comments
-        moderation_result = await moderate_content(
-            content=content,
-            post_id=comment_id,  # Using comment_id as content_id
-            user_id=user_id,
-            content_type="comment"
-        )
-        
-        # Update comment status based on moderation result
-        if moderation_result.action == "approve":
-            await hub_db.update_post_moderation_status(comment_id, 'approved')
-        elif moderation_result.action == "flag":
-            await hub_db.update_post_moderation_status(comment_id, 'flagged')
-        elif moderation_result.action == "remove":
-            await hub_db.update_post_moderation_status(comment_id, 'removed')
-            
-        print(f"Comment {comment_id} moderation completed: {moderation_result.action}")
-        
-    except Exception as e:
-        print(f"Error moderating comment {comment_id}: {e}")
-        # Default to approved if moderation fails
-        await hub_db.update_post_moderation_status(comment_id, 'approved')
-
 @router.get("/posts/{post_id}", response_model=PostWithComments)
 async def get_post(post_id: int, userId: Optional[int] = None) -> PostWithComments:
     """
