@@ -61,6 +61,17 @@ post_votes_table_name = "post_votes"
 post_links_table_name = "post_links"
 poll_options_table_name = "poll_options"
 
+# Reputation system tables
+user_points_table_name = "user_points"
+user_points_ledger_table_name = "user_points_ledger"
+comment_investments_table_name = "comment_investments"
+
+# Reputation configuration
+STREAK_REWARD_POINTS = 20
+INVEST_MIN_POINTS = 10
+INVEST_PAYOUT_MULTIPLIER = 3
+INVEST_WINDOW_DAYS = 2
+
 UPLOAD_FOLDER_NAME = "uploads"
 
 uncategorized_milestone_name = "[UNASSIGNED]"

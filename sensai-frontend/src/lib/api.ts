@@ -67,10 +67,36 @@ export interface Comment {
     author: string;
     votes: number;
     moderation_status?: 'pending' | 'approved' | 'flagged' | 'removed';
+    views?: number;
 }
 
 export interface PostWithComments extends Post {
     comments: Comment[];
+}
+
+export async function getUserPoints(userId: number): Promise<number> {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/users/${userId}/points`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Failed to fetch points');
+  const data = await res.json();
+  return data.balance as number;
+}
+
+export async function addCommentView(commentId: number): Promise<void> {
+  await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/comments/${commentId}/view`, {
+    method: 'POST'
+  });
+}
+
+export async function investInComment(commentId: number, userId: number, amount: number): Promise<void> {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/comments/${commentId}/invest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, amount })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.detail || 'Investment failed');
+  }
 }
 
 /**

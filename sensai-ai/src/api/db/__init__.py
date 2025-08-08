@@ -29,6 +29,10 @@ from api.config import (
     task_generation_jobs_table_name,
     org_api_keys_table_name,
     code_drafts_table_name,
+    # Reputation tables
+    user_points_table_name,
+    user_points_ledger_table_name,
+    comment_investments_table_name,
 )
 
 # New table names for Learning Hub
@@ -70,6 +74,7 @@ async def create_posts_table(cursor):
                 poll_options TEXT,
                 moderation_status TEXT DEFAULT 'pending' CHECK(moderation_status IN ('pending', 'approved', 'flagged', 'removed')),
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                views INTEGER DEFAULT 0,
                 FOREIGN KEY (hub_id) REFERENCES {hubs_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (parent_id) REFERENCES {posts_table_name}(id) ON DELETE CASCADE
@@ -86,6 +91,9 @@ async def create_posts_table(cursor):
     )
     await cursor.execute(
         f"""CREATE INDEX IF NOT EXISTS idx_posts_moderation_status ON {posts_table_name} (moderation_status)"""
+    )
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_posts_parent_id_views ON {posts_table_name} (parent_id, views)"""
     )
 
 
@@ -116,6 +124,77 @@ async def create_post_links_table(cursor):
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (post_id) REFERENCES {posts_table_name}(id) ON DELETE CASCADE
             )"""
+    )
+
+
+async def create_user_points_table(cursor):
+    """Creates table to track current user point balances"""
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {user_points_table_name} (
+                user_id INTEGER PRIMARY KEY,
+                balance INTEGER NOT NULL DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_user_points_balance ON {user_points_table_name} (balance)"""
+    )
+
+
+async def create_user_points_ledger_table(cursor):
+    """Creates ledger of all point transactions"""
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {user_points_ledger_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                delta INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                ref_comment_id INTEGER,
+                ref_post_id INTEGER,
+                investment_id INTEGER,
+                day_key TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
+                FOREIGN KEY (ref_comment_id) REFERENCES {posts_table_name}(id) ON DELETE SET NULL,
+                FOREIGN KEY (ref_post_id) REFERENCES {posts_table_name}(id) ON DELETE SET NULL
+            )"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_user_points_ledger_user ON {user_points_ledger_table_name} (user_id, created_at)"""
+    )
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_user_points_ledger_day ON {user_points_ledger_table_name} (user_id, day_key)"""
+    )
+
+
+async def create_comment_investments_table(cursor):
+    """Creates investments table for comment ROI game"""
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {comment_investments_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                investor_user_id INTEGER NOT NULL,
+                comment_id INTEGER NOT NULL,
+                post_id INTEGER NOT NULL,
+                amount INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('pending','won','lost','cancelled')) DEFAULT 'pending',
+                settle_at DATETIME NOT NULL,
+                settled_at DATETIME,
+                payout_amount INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (investor_user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
+                FOREIGN KEY (comment_id) REFERENCES {posts_table_name}(id) ON DELETE CASCADE,
+                FOREIGN KEY (post_id) REFERENCES {posts_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_comment_investments_investor ON {comment_investments_table_name} (investor_user_id)"""
+    )
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_comment_investments_settlement ON {comment_investments_table_name} (status, settle_at)"""
     )
 
 
@@ -594,6 +673,23 @@ async def migrate_posts_table_add_moderation_status(cursor):
         print(f"Migration error: {e}")
 
 
+async def migrate_posts_table_add_views(cursor):
+    """Add views column to posts if it doesn't exist and supporting index"""
+    try:
+        await cursor.execute(f"PRAGMA table_info({posts_table_name})")
+        columns = await cursor.fetchall()
+        column_names = [column[1] for column in columns]
+        if 'views' not in column_names:
+            await cursor.execute(
+                f"ALTER TABLE {posts_table_name} ADD COLUMN views INTEGER DEFAULT 0"
+            )
+            await cursor.execute(
+                f"""CREATE INDEX IF NOT EXISTS idx_posts_parent_id_views ON {posts_table_name} (parent_id, views)"""
+            )
+    except Exception as e:
+        print(f"Migration error (views): {e}")
+
+
 async def init_db():
     db_just_created = not exists(sqlite_db_path)
 
@@ -632,8 +728,14 @@ async def init_db():
             await create_poll_options_table(cursor)
             await create_moderation_logs_table(cursor)
 
+            # Create reputation tables
+            await create_user_points_table(cursor)
+            await create_user_points_ledger_table(cursor)
+            await create_comment_investments_table(cursor)
+
             # Run migration for existing posts table
             await migrate_posts_table_add_moderation_status(cursor)
+            await migrate_posts_table_add_views(cursor)
 
             await conn.commit()
 

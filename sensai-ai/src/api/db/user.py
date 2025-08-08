@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timezone, timedelta
 from api.config import (
     users_table_name,
@@ -17,7 +17,12 @@ from api.config import (
 from api.slack import send_slack_notification_for_new_user
 from api.models import UserCohort
 from api.utils import generate_random_color, get_date_from_str
-from api.utils.db import execute_db_operation, get_new_db_connection
+from api.utils.db import execute_db_operation, get_new_db_connection, execute_multiple_db_operations
+from api.config import (
+    user_points_table_name,
+    user_points_ledger_table_name,
+    STREAK_REWARD_POINTS,
+)
 
 
 async def update_user_email(email_1: str, email_2: str) -> None:
@@ -213,6 +218,82 @@ async def get_user_by_id(user_id: str) -> Dict:
     )
 
     return convert_user_db_to_dict(user)
+
+
+# Reputation and Points
+async def get_user_points_balance(user_id: int) -> int:
+    row = await execute_db_operation(
+        f"SELECT balance FROM {user_points_table_name} WHERE user_id = ?",
+        (user_id,),
+        fetch_one=True,
+    )
+    return int(row[0]) if row else 0
+
+
+async def add_user_points(
+    user_id: int,
+    delta: int,
+    reason: str,
+    ref_comment_id: Optional[int] = None,
+    ref_post_id: Optional[int] = None,
+    investment_id: Optional[int] = None,
+    day_key: Optional[str] = None,
+):
+    # Upsert balance and record ledger atomically
+    commands = []
+    # Ensure user_points row exists
+    commands.append(
+        (
+            f"INSERT OR IGNORE INTO {user_points_table_name} (user_id, balance) VALUES (?, 0)",
+            (user_id,),
+        )
+    )
+    # Update balance
+    commands.append(
+        (
+            f"UPDATE {user_points_table_name} SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+            (delta, user_id),
+        )
+    )
+    # Insert ledger row
+    commands.append(
+        (
+            f"""
+            INSERT INTO {user_points_ledger_table_name}
+                (user_id, delta, reason, ref_comment_id, ref_post_id, investment_id, day_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, delta, reason, ref_comment_id, ref_post_id, investment_id, day_key),
+        )
+    )
+    await execute_multiple_db_operations(commands)
+
+
+async def award_daily_comment_streak_points(user_id: int, today_ist: Optional[str] = None) -> bool:
+    """Award streak reward once per day when the user comments. Returns True if awarded now."""
+    # Determine day key in IST timezone
+    if not today_ist:
+        today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date()
+        day_key = today.strftime("%Y-%m-%d")
+    else:
+        day_key = today_ist
+
+    # Check if already awarded
+    row = await execute_db_operation(
+        f"SELECT 1 FROM {user_points_ledger_table_name} WHERE user_id = ? AND reason = ? AND day_key = ? LIMIT 1",
+        (user_id, "streak", day_key),
+        fetch_one=True,
+    )
+    if row:
+        return False
+
+    await add_user_points(
+        user_id=user_id,
+        delta=STREAK_REWARD_POINTS,
+        reason="streak",
+        day_key=day_key,
+    )
+    return True
 
 
 async def get_user_cohorts(user_id: int) -> List[Dict]:

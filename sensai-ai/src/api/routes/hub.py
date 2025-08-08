@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from typing import List, Dict, Optional
+from pydantic import BaseModel
 from api.db import hub as hub_db
 from api.models import (
     CreateHubRequest,
@@ -13,6 +14,7 @@ from api.models import (
 )
 from ..services.moderation import moderate_content
 from ..db import hub as hub_db
+from ..db.hub import invest_in_comment, increment_post_views, settle_investment
 from google import genai
 from google.genai import types
 
@@ -179,6 +181,42 @@ async def vote_on_post(post_id: int, request: PostVoteRequest) -> Dict[str, bool
     """
     await hub_db.add_vote_to_post(post_id, request.user_id, request.vote_type, request.is_comment)
     return {"success": True}
+
+
+class InvestRequest(BaseModel):
+    user_id: int
+    amount: int
+
+
+@router.post("/comments/{comment_id}/invest")
+async def invest(comment_id: int, request: InvestRequest) -> Dict:
+    try:
+        data = await invest_in_comment(
+            investor_user_id=request.user_id,
+            comment_id=comment_id,
+            amount=request.amount,
+        )
+        return {"success": True, "investment": data}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/comments/{comment_id}/view")
+async def add_comment_view(comment_id: int) -> Dict[str, bool]:
+    try:
+        await increment_post_views(comment_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/investments/{investment_id}/settle")
+async def settle_investment_now(investment_id: int) -> Dict:
+    try:
+        result = await settle_investment(investment_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 @router.delete("/posts/{post_id}", status_code=204)
 async def delete_post(post_id: int):
     """

@@ -2,7 +2,7 @@
 
 from typing import List, Dict, Optional
 import json
-from api.utils.db import execute_db_operation
+from api.utils.db import execute_db_operation, execute_multiple_db_operations
 from api.config import (
     hubs_table_name,
     posts_table_name,
@@ -10,6 +10,8 @@ from api.config import (
     post_votes_table_name,
     post_links_table_name
 )
+from api.db.user import award_daily_comment_streak_points, add_user_points, get_user_points_balance
+from api.config import INVEST_MIN_POINTS, INVEST_PAYOUT_MULTIPLIER, INVEST_WINDOW_DAYS, user_points_table_name, user_points_ledger_table_name, comment_investments_table_name
 
 async def create_hub(org_id: int, name: str, description: Optional[str]) -> int:
     """
@@ -73,13 +75,174 @@ async def create_post(hub_id: int, user_id: int, title: Optional[str], content: 
     poll_options_json = json.dumps(poll_options) if poll_options else None
     
     # Add moderation_status field with default 'pending'
-    return await execute_db_operation(
+    post_id = await execute_db_operation(
         f"""INSERT INTO {posts_table_name}
            (hub_id, user_id, title, content, post_type, parent_id, poll_options, moderation_status)
            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')""",
         (hub_id, user_id, title, content, post_type, parent_id, poll_options_json),
         get_last_row_id=True
     )
+    # Award daily streak only for comments (replies)
+    if parent_id is not None:
+        try:
+            await award_daily_comment_streak_points(user_id)
+        except Exception as e:
+            print(f"Error awarding streak points for user {user_id}: {e}")
+    return post_id
+
+
+async def increment_post_views(post_id: int):
+    await execute_db_operation(
+        f"UPDATE {posts_table_name} SET views = COALESCE(views,0) + 1 WHERE id = ?",
+        (post_id,)
+    )
+
+
+async def invest_in_comment(investor_user_id: int, comment_id: int, amount: int) -> Dict:
+    # Validate basics
+    if amount < INVEST_MIN_POINTS:
+        raise ValueError("Amount below minimum")
+    # Fetch comment and parent post
+    row = await execute_db_operation(
+        f"SELECT id, parent_id, user_id, moderation_status FROM {posts_table_name} WHERE id = ?",
+        (comment_id,), fetch_one=True
+    )
+    if not row:
+        raise ValueError("Comment not found")
+    _, parent_id, author_id, moderation_status = row
+    if parent_id is None:
+        raise ValueError("Not a comment")
+    if author_id == investor_user_id:
+        raise ValueError("Cannot invest in own comment")
+    if moderation_status in ('flagged','removed'):
+        raise ValueError("Comment not eligible")
+
+    # Check balance
+    balance = await get_user_points_balance(investor_user_id)
+    if balance < amount:
+        raise ValueError("Insufficient balance")
+
+    # Create investment and deduct points atomically
+    from datetime import datetime, timedelta
+    settle_at = (datetime.utcnow() + timedelta(days=INVEST_WINDOW_DAYS)).isoformat(sep=" ")
+    commands = [
+        (
+            f"INSERT INTO {comment_investments_table_name} (investor_user_id, comment_id, post_id, amount, status, settle_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+            (investor_user_id, comment_id, parent_id, amount, settle_at),
+        ),
+        (
+            f"INSERT OR IGNORE INTO {user_points_table_name} (user_id, balance) VALUES (?, 0)",
+            (investor_user_id,),
+        ),
+        (
+            f"UPDATE {user_points_table_name} SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+            (amount, investor_user_id),
+        ),
+        (
+            f"INSERT INTO {user_points_ledger_table_name} (user_id, delta, reason, ref_comment_id) VALUES (?, ?, 'invest_stake', ?)",
+            (investor_user_id, -amount, comment_id),
+        ),
+    ]
+    await execute_multiple_db_operations(commands)
+
+    # Return investment summary
+    return {
+        "investor_user_id": investor_user_id,
+        "comment_id": comment_id,
+        "post_id": parent_id,
+        "amount": amount,
+        "status": "pending",
+        "settle_at": settle_at,
+    }
+
+
+async def settle_investment(investment_id: int) -> Dict:
+    """Settle a single investment. Returns settlement summary."""
+    # Fetch investment
+    inv = await execute_db_operation(
+        f"SELECT id, investor_user_id, comment_id, post_id, amount, status FROM {comment_investments_table_name} WHERE id = ?",
+        (investment_id,), fetch_one=True
+    )
+    if not inv:
+        raise ValueError("Investment not found")
+    _, investor_user_id, comment_id, post_id, amount, status = inv
+    if status != 'pending':
+        return {"investment_id": investment_id, "status": status}
+
+    # If the invested comment is moderated away, auto-loss
+    comment_row = await execute_db_operation(
+        f"SELECT moderation_status FROM {posts_table_name} WHERE id = ?",
+        (comment_id,), fetch_one=True
+    )
+    moderated_away = comment_row and comment_row[0] in ('flagged','removed')
+
+    # Compute top by votes and top by views among siblings
+    rows = await execute_db_operation(
+        f"""
+        SELECT p.id,
+               COALESCE(SUM(CASE WHEN pv.vote_type='up' THEN 1 WHEN pv.vote_type='down' THEN -1 ELSE 0 END), 0) AS score,
+               COALESCE(p.views,0) AS views,
+               p.created_at
+        FROM {posts_table_name} p
+        LEFT JOIN {post_votes_table_name} pv ON pv.post_id = p.id
+        WHERE p.parent_id = ? AND (p.moderation_status IS NULL OR p.moderation_status NOT IN ('flagged','removed'))
+        GROUP BY p.id
+        """,
+        (post_id,), fetch_all=True
+    )
+    # Determine tops
+    if rows:
+        # Top by score
+        top_score_row = sorted(rows, key=lambda r: (-int(r[1]), -int(r[2]), r[3]))[0]
+        # Top by views
+        top_views_row = sorted(rows, key=lambda r: (-int(r[2]), -int(r[1]), r[3]))[0]
+        is_top_score = top_score_row[0] == comment_id
+        is_top_views = top_views_row[0] == comment_id
+    else:
+        is_top_score = False
+        is_top_views = False
+
+    won = (not moderated_away) and is_top_score and is_top_views
+    payout = amount * INVEST_PAYOUT_MULTIPLIER if won else 0
+
+    commands = []
+    # Update investment status
+    new_status = 'won' if won else 'lost'
+    commands.append(
+        (
+            f"UPDATE {comment_investments_table_name} SET status = ?, payout_amount = ?, settled_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (new_status, payout, investment_id),
+        )
+    )
+    # If win, credit points and add ledger entry
+    if won and payout > 0:
+        commands.append(
+            (
+                f"INSERT OR IGNORE INTO {user_points_table_name} (user_id, balance) VALUES (?, 0)",
+                (investor_user_id,),
+            )
+        )
+        commands.append(
+            (
+                f"UPDATE {user_points_table_name} SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+                (payout, investor_user_id),
+            )
+        )
+        commands.append(
+            (
+                f"INSERT INTO {user_points_ledger_table_name} (user_id, delta, reason, ref_comment_id, investment_id) VALUES (?, ?, 'invest_payout', ?, ?)",
+                (investor_user_id, payout, comment_id, investment_id),
+            )
+        )
+
+    await execute_multiple_db_operations(commands)
+
+    return {
+        "investment_id": investment_id,
+        "status": new_status,
+        "payout": payout,
+        "won": won,
+    }
 
 async def get_posts_by_hub(hub_id: int) -> List[Dict]:
     """

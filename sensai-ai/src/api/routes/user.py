@@ -11,6 +11,7 @@ from api.db.user import (
     get_user_streak as get_user_streak_from_db,
     get_user_organizations,
     get_user_org_cohorts as get_user_org_cohorts_from_db,
+    get_user_points_balance,
 )
 from api.db.course import get_user_courses as get_user_courses_from_db
 from api.db.cohort import is_user_in_cohort as is_user_in_cohort_from_db
@@ -98,3 +99,9 @@ async def get_user_org_cohorts(user_id: int, org_id: int) -> List[UserCohort]:
 @router.get("/{user_id}/orgs")
 async def get_user_orgs(user_id: int) -> List[Dict]:
     return await get_user_organizations(user_id)
+
+
+@router.get("/{user_id}/points")
+async def get_user_points(user_id: int) -> Dict:
+    balance = await get_user_points_balance(user_id)
+    return {"user_id": user_id, "balance": balance}
