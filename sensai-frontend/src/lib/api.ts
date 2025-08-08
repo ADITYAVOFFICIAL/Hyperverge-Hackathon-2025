@@ -75,9 +75,13 @@ export interface PostWithComments extends Post {
 }
 
 export async function getUserPoints(userId: number): Promise<number> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/users/${userId}/points`, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Failed to fetch points');
+  const url = `${process.env.NEXT_PUBLIC_BACKEND_URL}/users/${userId}/points`;
+  console.log('Fetching points from URL:', url);
+  const res = await fetch(url, { cache: 'no-store' });
+  console.log('Points fetch response status:', res.status);
+  if (!res.ok) throw new Error(`Failed to fetch points: ${res.status}`);
   const data = await res.json();
+  console.log('Points API response:', data);
   return data.balance as number;
 }
 

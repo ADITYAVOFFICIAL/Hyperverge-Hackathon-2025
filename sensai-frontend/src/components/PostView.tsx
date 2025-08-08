@@ -24,17 +24,15 @@ export default function PostView({ postId }: PostViewProps) {
 
     const loadPoints = React.useCallback(async () => {
         console.log('loadPoints called, user:', user);
-        if (user?.id) {
-            console.log('Loading points for user ID:', user.id);
-            try {
-                const bal = await getUserPoints(parseInt(user.id));
-                console.log('Points loaded:', bal);
-                setPoints(bal);
-            } catch (error) {
-                console.error('Error loading points:', error);
-            }
-        } else {
-            console.log('No user ID available for loading points');
+        // TEMPORARY: Use hardcoded user ID 2 for testing if no user is logged in
+        const userId = user?.id || "2";
+        console.log('Loading points for user ID:', userId);
+        try {
+            const bal = await getUserPoints(parseInt(userId));
+            console.log('Points loaded:', bal);
+            setPoints(bal);
+        } catch (error) {
+            console.error('Error loading points:', error);
         }
     }, [user?.id]);
 
@@ -59,16 +57,18 @@ export default function PostView({ postId }: PostViewProps) {
     }, [postId, user?.id, loadPoints]);
 
     const handleAddComment = async () => {
-        if (!newComment.trim() || !user || !post) return;
+        if (!newComment.trim() || !post) return;
         setIsSubmitting(true);
         setCommentError(null);
         try {
+            // TEMPORARY: Use hardcoded user ID 2 for testing if no user is logged in
+            const userId = user?.id || "2";
             const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     hub_id: post.hub_id,
-                    user_id: parseInt(user.id),
+                    user_id: parseInt(userId),
                     content: newComment,
                     post_type: 'reply',
                     parent_id: post.id
@@ -82,7 +82,7 @@ export default function PostView({ postId }: PostViewProps) {
                 id: newCommentData.id,
                 content: newComment,
                 created_at: new Date().toISOString(),
-                author: user.email || 'You',
+                author: user?.email || 'Test User',
                 votes: 0
             };
 
@@ -100,12 +100,13 @@ export default function PostView({ postId }: PostViewProps) {
     };
     
     const handleVote = async (targetPostId: number, isComment: boolean, voteType: 'up' | 'down') => {
-        if (!user) return;
         try {
+            // TEMPORARY: Use hardcoded user ID 2 for testing if no user is logged in
+            const userId = user?.id || "2";
             await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/hubs/posts/${targetPostId}/vote`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: parseInt(user.id), vote_type: voteType, is_comment: isComment })
+                body: JSON.stringify({ user_id: parseInt(userId), vote_type: voteType, is_comment: isComment })
             });
 
             setPost(prevPost => {
@@ -125,7 +126,6 @@ export default function PostView({ postId }: PostViewProps) {
     };
 
     const handleInvest = async (commentId: number) => {
-        if (!user) return;
         setInvestError(null);
         setInvestingFor(commentId);
         const amount = parseInt(commentInvestAmounts[commentId] || '0', 10);
@@ -135,7 +135,9 @@ export default function PostView({ postId }: PostViewProps) {
             return;
         }
         try {
-            await investInComment(commentId, parseInt(user.id), amount);
+            // TEMPORARY: Use hardcoded user ID 2 for testing if no user is logged in
+            const userId = user?.id || "2";
+            await investInComment(commentId, parseInt(userId), amount);
             // refresh points
             loadPoints();
             // Clear the specific comment's invest amount
@@ -170,6 +172,13 @@ export default function PostView({ postId }: PostViewProps) {
 
     return (
         <div>
+            {/* DEBUG INFO */}
+            <div className="mb-4 p-2 bg-yellow-900 text-yellow-100 text-xs rounded">
+                <div>Backend URL: {process.env.NEXT_PUBLIC_BACKEND_URL || 'NOT SET'}</div>
+                <div>User: {user ? `${user.email} (ID: ${user.id})` : 'Not logged in (using test user 2)'}</div>
+                <div>Points: {points}</div>
+            </div>
+            
             <div className="bg-[#1A1A1A] p-8 rounded-lg">
                 <h1 className="text-3xl font-light text-white mb-4">{post.title}</h1>
                 <div className="flex items-center text-sm text-gray-500 mb-6">
